@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd" >
+<mapper namespace="com.parker.util.dao.DownloadTaskDAO">
+    <resultMap id="downloadTask" type="com.parker.util.entity.DownloadTask">
+        <id column="id" property="id"></id>
+        <result column="url" property="url"></result>
+        <result column="file_name" property="fileName"></result>
+        <result column="file_size" property="fileSize"></result>
+        <result column="saved_file_size" property="savedFileSize"></result>
+        <result column="description" property="description"></result>
+        <result column="status" property="status"></result>
+        <result column="current_speed" property="currentSpeed"></result>
+        <result column="avg_speed" property="avgSpeed"></result>
+        <result column="max_speed" property="maxSpeed"></result>
+        <result column="start_time" property="startTime"></result>
+        <result column="end_time" property="endTime"></result>
+        <result column="remaining_time" property="remainingTime"></result>
+    </resultMap>
+    
+    <insert id="addDownloadTask" parameterType="com.parker.util.entity.DownloadTask" useGeneratedKeys="true" keyProperty="id">
+        insert into download_task(url, file_name, file_size, description, status, start_time)
+         values (#{url}, #{fileName}, #{fileSize},
+         #{description}, #{status}, #{startTime})
+    </insert>
+    <update id="updateDownloadTask" parameterType="com.parker.util.entity.DownloadTask">
+        update download_task set file_name=#{fileName}, description=#{description},
+         saved_file_size=#{savedFileSize}, remaining_time=#{remainingTime},
+         current_speed=#{currentSpeed}, avg_speed=#{avgSpeed},
+         max_speed=#{maxSpeed}, end_time=#{endTime},
+         remaining_time=#{remainingTime} where id = #{id}
+    </update>
+    <update id="updateDownloadTaskStatus">
+        update download_task set status = #{status} where id = #{id}
+    </update>
+    <delete id="deleteDownloadTask">
+        delete from download_task where id = #{id}
+    </delete>
+    <select id="getDownloadTaskById"  resultMap="downloadTask">
+        select * from download_task where id = #{id}
+    </select>
+</mapper>
