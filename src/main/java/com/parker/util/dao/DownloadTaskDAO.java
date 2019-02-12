@@ -7,7 +7,7 @@ import org.apache.ibatis.annotations.Mapper;
 public interface DownloadTaskDAO {
     void addDownloadTask(DownloadTask downloadTask);
     void updateDownloadTask(DownloadTask downloadTask);
-    void updateDownloadTaskStatus(Integer status);
+    void updateDownloadTaskStatus(DownloadTask downloadTask);
     void deleteDownloadTask(String id);
     DownloadTask getDownloadTaskById(String id);
 }

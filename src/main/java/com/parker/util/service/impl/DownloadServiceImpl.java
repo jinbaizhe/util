@@ -2,6 +2,7 @@ package com.parker.util.service.impl;
 
 import com.parker.util.dao.DownloadTaskDAO;
 import com.parker.util.entity.DownloadTask;
+import com.parker.util.entity.DownloadTaskProcess;
 import com.parker.util.entity.EnumDownloadTaskStatus;
 import com.parker.util.util.DownloadUtil;
 import com.parker.util.service.DownloadService;
@@ -24,7 +25,8 @@ public class DownloadServiceImpl implements DownloadService{
     private ExecutorService executorService = Executors.newSingleThreadExecutor();
     private final String saveLocation = "/opt/download/";
     private final String tempFileLocation = "/opt/tmp/";
-    private static final Map<String, DownloadTask> taskMap = new ConcurrentHashMap<>();
+    private final Map<String, DownloadTask> taskMap = new ConcurrentHashMap<>();
+    private final Map<String, DownloadTaskProcess> taskProcessMap = new ConcurrentHashMap<>();
 
     @Autowired
     private DownloadTaskDAO downloadTaskDAO;
@@ -69,9 +71,12 @@ public class DownloadServiceImpl implements DownloadService{
         //创建下载线程
         ExecutorService executorService = Executors.newFixedThreadPool(threadsNum);
         //启动显示下载状态的线程
-        DownloadUtil.DownloadStatusThread downloadStatusThread = new DownloadUtil.DownloadStatusThread(task, length);
+        DownloadUtil.DownloadStatusThread downloadStatusThread = new DownloadUtil.DownloadStatusThread(task, countDownLatch);
         Thread statusThread = new Thread(downloadStatusThread);
         statusThread.start();
+        DownloadTaskProcess downloadTaskProcess = new DownloadTaskProcess();
+        downloadTaskProcess.setTask(task);
+        taskProcessMap.put(task.getId(), downloadTaskProcess);
         //建立分块任务，并分配给线程池
         for (int i=0;i<threadsNum;i++){
             long start = i * partLength;
@@ -79,34 +84,43 @@ public class DownloadServiceImpl implements DownloadService{
             if (i == (threadsNum -1)){
                 end = length -1;
             }
-            DownloadUtil.DownloadThread downloadThread = new DownloadUtil.DownloadThread(address, start, end, fileName + "#" + i, tempFileLocation, countDownLatch);
+            String tempFileName = fileName + "#" + i;
+            DownloadTaskProcess.DownloadThreadProcess threadProcess = new DownloadTaskProcess.DownloadThreadProcess();
+            downloadTaskProcess.getDownloadThreadProcessMap().put(tempFileName, threadProcess);
+            DownloadUtil.DownloadThread downloadThread = new DownloadUtil.DownloadThread(task, start, end, tempFileName, tempFileLocation, countDownLatch);
             downloadThread.addObserver(downloadStatusThread);
             executorService.submit(downloadThread);
         }
         //等待下载完成
         try {
             countDownLatch.await();
-            task.setStatus(EnumDownloadTaskStatus.MERGING.getCode());
+            if (task.getStatus().equals(EnumDownloadTaskStatus.DOWNLOADING.getCode())) {
+                task.setStatus(EnumDownloadTaskStatus.MERGING.getCode());
+                //合并分块文件
+                logger.debug("开始合并分块文件");
+                DownloadUtil.mergeFile(threadsNum, saveLocation, fileName, tempFileLocation);
+                logger.debug("合并分块文件完成");
+                task.setStatus(EnumDownloadTaskStatus.FINISHED.getCode());
+                taskProcessMap.remove(task.getId());
+            }
         } catch (InterruptedException e) {
             task.setStatus(EnumDownloadTaskStatus.FAILED.getCode());
-            e.printStackTrace();
+            logger.error("下载文件失败");
+            logger.error(e.getMessage());
         }
-        //合并分块文件
-        DownloadUtil.mergeFile(threadsNum, partLength, saveLocation, fileName, tempFileLocation);
         //清理资源，关闭线程池
         executorService.shutdown();
         while (!executorService.isTerminated() || statusThread.isAlive()){
+            logger.info("下载线程还未全部关闭，继续等待");
             try {
                 Thread.sleep(500);
-                logger.warn("下载线程还未全部关闭，继续等待");
             } catch (InterruptedException e) {
                 e.printStackTrace();
             }
         }
-        logger.info("下载线程已全部关闭");
+        logger.debug("下载线程已全部关闭");
         //设置任务状态为完成，保存至数据库中，并从TaskMap中移除
-        task.setStatus(EnumDownloadTaskStatus.FINISHED.getCode());
-        downloadTaskDAO.updateDownloadTaskStatus(EnumDownloadTaskStatus.FINISHED.getCode());
+        downloadTaskDAO.updateDownloadTaskStatus(task);
         downloadTaskDAO.updateDownloadTask(task);
         taskMap.remove(task.getId());
     }
@@ -149,4 +163,88 @@ public class DownloadServiceImpl implements DownloadService{
         return list;
     }
 
+    @Override
+    public boolean pauseDownloadTask(String taskId) {
+        DownloadTask task = getDownloadTask(taskId);
+        if (task == null){
+            return false;
+        }
+        if (task.getStatus().equals(EnumDownloadTaskStatus.DOWNLOADING.getCode())) {
+            task.setStatus(EnumDownloadTaskStatus.PAUSE.getCode());
+            downloadTaskDAO.updateDownloadTaskStatus(task);
+            return true;
+        }
+        return false;
+    }
+
+    @Override
+    public boolean resumeDownloadTask(String taskId) {
+        executorService.execute(new Runnable() {
+            @Override
+            public void run() {
+                DownloadTask task = getDownloadTask(taskId);
+                if (task != null && task.getStatus().equals(EnumDownloadTaskStatus.PAUSE.getCode())) {
+                    task.setStatus(EnumDownloadTaskStatus.DOWNLOADING.getCode());
+                    downloadTaskDAO.updateDownloadTaskStatus(task);
+                    //获得原先任务下载信息
+                    DownloadTaskProcess taskProcess = taskProcessMap.get(task.getId());
+                    Map<String, DownloadTaskProcess.DownloadThreadProcess> threadProcessMap = null;
+                    int threadsNum = 0;
+                    if (taskProcess != null) {
+                        threadProcessMap = taskProcess.getDownloadThreadProcessMap();
+                        threadsNum = threadProcessMap.size();
+                        CountDownLatch countDownLatch = new CountDownLatch(threadsNum);
+                        //创建下载线程
+                        ExecutorService executorService = Executors.newFixedThreadPool(threadsNum);
+                        //启动显示下载状态的线程
+                        DownloadUtil.DownloadStatusThread downloadStatusThread = new DownloadUtil.DownloadStatusThread(task, countDownLatch);
+                        Thread statusThread = new Thread(downloadStatusThread);
+                        statusThread.start();
+                        //建立分块任务，并分配给线程池
+                        for (String tempFileName : threadProcessMap.keySet()) {
+                            DownloadTaskProcess.DownloadThreadProcess threadProcess = threadProcessMap.get(tempFileName);
+                            long start = threadProcess.getCurrentPosition();
+                            long end = threadProcess.getEnd();
+                            DownloadUtil.DownloadThread downloadThread = new DownloadUtil.DownloadThread(task, start, end, tempFileName, tempFileLocation, countDownLatch);
+                            downloadThread.addObserver(downloadStatusThread);
+                            executorService.submit(downloadThread);
+                        }
+                        //等待下载完成
+                        try {
+                            countDownLatch.await();
+                            if (task.getStatus().equals(EnumDownloadTaskStatus.DOWNLOADING.getCode())) {
+                                task.setStatus(EnumDownloadTaskStatus.MERGING.getCode());
+                                //合并分块文件
+                                logger.debug("开始合并分块文件");
+                                DownloadUtil.mergeFile(threadsNum, saveLocation, task.getFileName(), tempFileLocation);
+                                logger.debug("合并分块文件完成");
+                                task.setStatus(EnumDownloadTaskStatus.FINISHED.getCode());
+                                taskProcessMap.remove(task.getId());
+                            }
+                        } catch (InterruptedException e) {
+                            task.setStatus(EnumDownloadTaskStatus.FAILED.getCode());
+                            logger.error("下载文件失败");
+                            logger.error(e.getMessage());
+                        }
+                        //清理资源，关闭线程池
+                        executorService.shutdown();
+                        while (!executorService.isTerminated() || statusThread.isAlive()) {
+                            logger.info("下载线程还未全部关闭，继续等待");
+                            try {
+                                Thread.sleep(500);
+                            } catch (InterruptedException e) {
+                                e.printStackTrace();
+                            }
+                        }
+                        logger.debug("下载线程已全部关闭");
+                        //设置任务状态为完成，保存至数据库中，并从TaskMap中移除
+                        downloadTaskDAO.updateDownloadTaskStatus(task);
+                        downloadTaskDAO.updateDownloadTask(task);
+                        taskMap.remove(task.getId());
+                    }
+                }
+            }
+        });
+        return true;
+    }
 }

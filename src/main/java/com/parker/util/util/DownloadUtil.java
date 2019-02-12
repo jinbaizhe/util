@@ -2,7 +2,9 @@ package com.parker.util.util;
 
 import com.parker.util.dao.DownloadTaskDAO;
 import com.parker.util.entity.DownloadTask;
+import com.parker.util.entity.DownloadTaskProcess;
 import com.parker.util.entity.EnumDownloadTaskStatus;
+import lombok.Data;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -75,14 +77,14 @@ public class DownloadUtil {
         return length;
     }
 
-    public static void mergeFile(int partsNum,long partLength, String saveLocation, String fileName, String tempFileLocation){
+    public static void mergeFile(int partsNum, String saveLocation, String fileName, String tempFileLocation){
         long startTime = System.currentTimeMillis();
         double fileSize = 0;
         try {
             RandomAccessFile file = new RandomAccessFile(saveLocation + fileName, "rwd");
             byte[] bytes = new byte[8192];
             for (int i=0;i<partsNum;i++){
-                long startPosition = i * partLength;
+                long startPosition = file.length();
                 file.seek(startPosition);
                 String tempFileName = tempFileLocation + fileName + "#" + i;
                 File tempFile = new File(tempFileName);
@@ -101,7 +103,7 @@ public class DownloadUtil {
                 if (tempFile !=null && tempFile.exists()){
                     boolean isDelete = tempFile.delete();
                     if (!isDelete){
-                        System.out.println("缓存文件["+ tempFileName + "]删除失败");
+                        logger.error("缓存文件["+ tempFileName + "]删除失败");
                     }
                 }
             }
@@ -117,7 +119,7 @@ public class DownloadUtil {
         long endTime = System.currentTimeMillis();
         double spendTime = (endTime - startTime)/1000;
         double speed = fileSize/spendTime;
-        logger.info("合并文件完成[文件名：" + fileName + "，总大小：" + doubleToStringWithFormat(fileSize) + "MB，耗时：" + doubleToStringWithFormat(spendTime) + "秒,速度：" + doubleToStringWithFormat(speed) + "MB/s]");
+        logger.debug("合并文件完成[文件名：" + fileName + "，总大小：" + doubleToStringWithFormat(fileSize) + "MB，耗时：" + doubleToStringWithFormat(spendTime) + "秒,速度：" + doubleToStringWithFormat(speed) + "MB/s]");
     }
 
     public static String getNewFileNameIfExists(String saveLocation, String fileName, String tempFileLocation){
@@ -131,18 +133,19 @@ public class DownloadUtil {
         return fileName;
     }
 
+    @Data
     public static class DownloadThread extends Observable implements Runnable{
-        private String address;
+        private DownloadTask task;
         private long start;
         private long end;
-        private String fileName;
+        private String tempFileName;
         private String tempFileLocation;
         private CountDownLatch countDownLatch;
-        public DownloadThread(String address, long start, long end, String fileName, String tempFileLocation, CountDownLatch countDownLatch){
-            this.address = address;
+        public DownloadThread(DownloadTask task, long start, long end, String tempFileName,String tempFileLocation, CountDownLatch countDownLatch){
+            this.task = task;
             this.start = start;
             this.end = end;
-            this.fileName = fileName;
+            this.tempFileName = tempFileName;
             this.tempFileLocation = tempFileLocation;
             this.countDownLatch = countDownLatch;
         }
@@ -158,21 +161,23 @@ public class DownloadUtil {
             int count = 0;
             while (true) {
                 if (count >= 3){
-                    logger.error("下载失败[文件名:"+ fileName + "]");
+                    logger.error("下载失败[文件名:"+ tempFileName + "]");
+                    task.setStatus(EnumDownloadTaskStatus.FAILED.getCode());
+                    countDownLatch.countDown();
                     break;
                 }
                 try {
-                    connection = getURLConnection(address);
+                    connection = getURLConnection(task.getUrl());
                     connection.setRequestProperty("Range", rangeValue);
                     connection.setReadTimeout(5000);
-                    file = new RandomAccessFile(tempFileLocation + fileName, "rwd");
+                    file = new RandomAccessFile(tempFileLocation + tempFileName, "rwd");
                     inputStream = connection.getInputStream();
                     bufferedInputStream = new BufferedInputStream(inputStream);
                     int length = 0;
-                    while ((length = (bufferedInputStream.read(bytes))) != -1) {
+                    while (!(task.getStatus().equals(EnumDownloadTaskStatus.PAUSE.getCode())) && ((length = (bufferedInputStream.read(bytes))) != -1)) {
+                        file.write(bytes, 0, length);
                         setChanged();
                         notifyObservers(length);
-                        file.write(bytes, 0, length);
                     }
                     countDownLatch.countDown();
                     break;
@@ -203,14 +208,22 @@ public class DownloadUtil {
         }
     }
 
+    @Data
     public static class DownloadStatusThread implements Runnable,Observer {
-        private long fileLength;
-        private long tempFileLength;
+        private long fileSize;
+        private long tempFileSize;
         private DownloadTask task;
+        private DownloadTaskProcess downloadTaskProcess;
+        private Map downloadThreadProcessMap;
+        private CountDownLatch countDownLatch;
 
-        public DownloadStatusThread(DownloadTask task, long fileLength){
-            this.fileLength = fileLength;
+        public DownloadStatusThread(DownloadTask task, CountDownLatch countDownLatch){
             this.task = task;
+            this.fileSize = task.getFileSize();
+            tempFileSize = 0;
+            this.countDownLatch = countDownLatch;
+            downloadTaskProcess = new DownloadTaskProcess();
+            downloadThreadProcessMap = downloadTaskProcess.getDownloadThreadProcessMap();
         }
 
         @Override
@@ -218,46 +231,62 @@ public class DownloadUtil {
             //设置任务状态为开始下载状态
             task.setStatus(EnumDownloadTaskStatus.DOWNLOADING.getCode());
             long startTime = System.currentTimeMillis() / 1000;
-            long lastTempFileLength = tempFileLength;
+            long lastTempFileLength = tempFileSize;
             double currentSpeedKB = 0;
             double maxSpeedKB = 0;
             double remainTime = 0;
-            while (tempFileLength<fileLength){
-                currentSpeedKB = (tempFileLength - lastTempFileLength) / 1000 / 0.5;
-                lastTempFileLength = tempFileLength;
+            while (!(countDownLatch.getCount()==0) && tempFileSize<fileSize){
+                currentSpeedKB = (tempFileSize - lastTempFileLength) / 1000 / 0.5;
+                lastTempFileLength = tempFileSize;
                 maxSpeedKB = (maxSpeedKB < currentSpeedKB)? currentSpeedKB : maxSpeedKB;
                 //计算剩余时间
-                remainTime = (fileLength - tempFileLength) / 1000 / currentSpeedKB;
+                remainTime = (fileSize - tempFileSize) / 1000 / currentSpeedKB;
                 //保存相关的下载信息
-                task.setSavedFileSize(tempFileLength);
+                task.setSavedFileSize(tempFileSize);
                 task.setMaxSpeed(maxSpeedKB);
                 task.setCurrentSpeed(currentSpeedKB);
                 task.setRemainingTime(Math.round(remainTime));
+                // TODO: 2019/2/5 保存下载进度信息到Redis
                 try {
                     Thread.sleep(500);
                 } catch (InterruptedException e) {
                     e.printStackTrace();
                 }
             }
-            long endTime = System.currentTimeMillis() / 1000;
-            double spendTime = endTime - startTime;
-            double fileSizeKB = fileLength / 1.0 / 1000;
-            double fileSizeMB = fileSizeKB / 1000;
-            double avgSpeedKB = fileSizeKB / spendTime;
-            double avgSpeedMB = fileSizeMB / spendTime;
-            logger.info("下载文件完成[文件名：" + task.getFileName() + "，总大小：" + doubleToStringWithFormat(fileSizeMB) + "MB，耗时：" + doubleToStringWithFormat(spendTime) + "秒，平均下载速度：" + doubleToStringWithFormat(avgSpeedMB) +  "MB/s]");
-            task.setStartTime(startTime);
-            task.setEndTime(endTime);
-            task.setMaxSpeed(maxSpeedKB);
-            task.setAvgSpeed(avgSpeedKB);
-            task.setSavedFileSize(tempFileLength);
+            task.setSavedFileSize(tempFileSize);
+            if (task.getStatus().equals(EnumDownloadTaskStatus.DOWNLOADING.getCode())) {
+                long endTime = System.currentTimeMillis() / 1000;
+                double spendTime = endTime - startTime;
+                double fileSizeKB = fileSize / 1.0 / 1000;
+                double fileSizeMB = fileSizeKB / 1000;
+                double avgSpeedKB = fileSizeKB / spendTime;
+                double avgSpeedMB = fileSizeMB / spendTime;
+                logger.debug("下载文件完成[文件名：" + task.getFileName() + "，总大小：" + doubleToStringWithFormat(fileSizeMB) + "MB，耗时：" + doubleToStringWithFormat(spendTime) + "秒，平均下载速度：" + doubleToStringWithFormat(avgSpeedMB) + "MB/s]");
+                task.setStartTime(startTime);
+                task.setEndTime(endTime);
+                task.setMaxSpeed(maxSpeedKB);
+                task.setAvgSpeed(avgSpeedKB);
+                task.setRemainingTime(0);
+                task.setSavedFileSize(tempFileSize);
+            }
         }
 
         @Override
         public void update(Observable o, Object arg) {
             synchronized (DownloadStatusThread.class) {
                 long temp = Long.parseLong(arg.toString());
-                tempFileLength += temp;
+                tempFileSize += temp;
+                DownloadThread downloadThread = (DownloadThread) o;
+                DownloadTaskProcess.DownloadThreadProcess downloadThreadProcess = (DownloadTaskProcess.DownloadThreadProcess) downloadThreadProcessMap.get(downloadThread.tempFileName);
+                if (downloadThreadProcess != null) {
+                    downloadThreadProcess.setEnd(downloadThreadProcess.getCurrentPosition() + temp);
+                }else {
+                    downloadThreadProcess = new DownloadTaskProcess.DownloadThreadProcess();
+                    downloadThreadProcess.setBegin(downloadThread.getStart());
+                    downloadThreadProcess.setEnd(downloadThread.getEnd());
+                    downloadThreadProcess.setCurrentPosition(downloadThread.getStart() + temp);
+                    downloadThreadProcessMap.put(downloadThread.tempFileName, downloadThreadProcess);
+                }
             }
         }
     }

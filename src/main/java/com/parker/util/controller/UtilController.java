@@ -77,4 +77,26 @@ public class UtilController {
         List<DownloadTask> taskList = downloadService.getAllCurrentDownloadTask();
         return JSONArray.toJSONString(taskList);
     }
+
+    @RequestMapping("/pauseDownloadTask")
+    @ResponseBody
+    public String pauseDownloadTask(@RequestHeader HashMap map, @RequestParam("taskId") String taskId){
+        boolean result = downloadService.pauseDownloadTask(taskId);
+        String s = "暂停任务失败";
+        if (result){
+            s = "暂停任务成功";
+        }
+        return s;
+    }
+
+    @RequestMapping("/resumeDownloadTask")
+    @ResponseBody
+    public String resumeDownloadTask(@RequestHeader HashMap map, @RequestParam("taskId") String taskId){
+        boolean result = downloadService.resumeDownloadTask(taskId);
+        String s = "恢复任务失败";
+        if (result){
+            s = "恢复任务成功";
+        }
+        return s;
+    }
 }

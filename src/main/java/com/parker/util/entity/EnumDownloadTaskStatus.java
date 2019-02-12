@@ -7,7 +7,8 @@ public enum  EnumDownloadTaskStatus {
     DOWNLOADING(1, "下载中"),
     MERGING(2, "合并文件中"),
     FINISHED(3, "任务完成"),
-    FAILED(4, "下载失败");
+    FAILED(4, "下载失败"),
+    PAUSE(5, "暂停");
 
     private Integer code;
     private String desc;
