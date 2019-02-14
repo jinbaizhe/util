@@ -1,5 +1,6 @@
 package com.parker.util.service.impl;
 
+import com.alibaba.fastjson.JSON;
 import com.parker.util.dao.DownloadTaskDAO;
 import com.parker.util.entity.DownloadTask;
 import com.parker.util.entity.DownloadTaskProcess;
@@ -56,7 +57,8 @@ public class DownloadServiceImpl implements DownloadService{
         //解决重名的问题
         fileName = DownloadUtil.getNewFileNameIfExists(saveLocation, fileName, tempFileLocation);
         address = address.trim();
-        CountDownLatch countDownLatch = new CountDownLatch(threadsNum);
+        //倒计时器的数字为下载线程数+1(另外+1的是下载状态线程)
+        CountDownLatch countDownLatch = new CountDownLatch(threadsNum + 1);
         long length = DownloadUtil.getFileLength(address);
         long partLength = length / threadsNum;
         //记录任务信息
@@ -97,29 +99,34 @@ public class DownloadServiceImpl implements DownloadService{
             if (task.getStatus().equals(EnumDownloadTaskStatus.DOWNLOADING.getCode())) {
                 task.setStatus(EnumDownloadTaskStatus.MERGING.getCode());
                 //合并分块文件
-                logger.debug("开始合并分块文件");
+                logger.debug("开始合并分块文件[任务id:" + task.getId() + "]");
                 DownloadUtil.mergeFile(threadsNum, saveLocation, fileName, tempFileLocation);
-                logger.debug("合并分块文件完成");
+                logger.debug("合并分块文件完成[任务id:" + task.getId() + "]");
                 task.setStatus(EnumDownloadTaskStatus.FINISHED.getCode());
                 taskProcessMap.remove(task.getId());
             }
         } catch (InterruptedException e) {
             task.setStatus(EnumDownloadTaskStatus.FAILED.getCode());
-            logger.error("下载文件失败");
+            logger.error("下载文件失败[任务id:" + task.getId() + "]");
             logger.error(e.getMessage());
         }
         //清理资源，关闭线程池
         executorService.shutdown();
+        int closeCount = 0;
         while (!executorService.isTerminated() || statusThread.isAlive()){
-            logger.info("下载线程还未全部关闭，继续等待");
+            closeCount++;
+            if (closeCount > 3) {
+                logger.info("下载线程还未全部关闭，继续等待[任务id:" + task.getId() + "]");
+            }
             try {
-                Thread.sleep(500);
+                Thread.sleep(100);
             } catch (InterruptedException e) {
                 e.printStackTrace();
             }
         }
-        logger.debug("下载线程已全部关闭");
+        logger.debug("下载线程已全部关闭[任务id:" + task.getId() + "]");
         //设置任务状态为完成，保存至数据库中，并从TaskMap中移除
+        logger.debug(JSON.toJSONString(task));
         downloadTaskDAO.updateDownloadTaskStatus(task);
         downloadTaskDAO.updateDownloadTask(task);
         taskMap.remove(task.getId());
@@ -215,28 +222,32 @@ public class DownloadServiceImpl implements DownloadService{
                             if (task.getStatus().equals(EnumDownloadTaskStatus.DOWNLOADING.getCode())) {
                                 task.setStatus(EnumDownloadTaskStatus.MERGING.getCode());
                                 //合并分块文件
-                                logger.debug("开始合并分块文件");
+                                logger.debug("开始合并分块文件[任务id:" + task.getId() + "]");
                                 DownloadUtil.mergeFile(threadsNum, saveLocation, task.getFileName(), tempFileLocation);
-                                logger.debug("合并分块文件完成");
+                                logger.debug("合并分块文件完成[任务id:" + task.getId() + "]");
                                 task.setStatus(EnumDownloadTaskStatus.FINISHED.getCode());
                                 taskProcessMap.remove(task.getId());
                             }
                         } catch (InterruptedException e) {
                             task.setStatus(EnumDownloadTaskStatus.FAILED.getCode());
-                            logger.error("下载文件失败");
+                            logger.error("下载文件失败[任务id:" + task.getId() + "]");
                             logger.error(e.getMessage());
                         }
                         //清理资源，关闭线程池
                         executorService.shutdown();
+                        int closeCount = 0;
                         while (!executorService.isTerminated() || statusThread.isAlive()) {
-                            logger.info("下载线程还未全部关闭，继续等待");
+                            closeCount++;
+                            if (closeCount > 3) {
+                                logger.info("下载线程还未全部关闭，继续等待[任务id:" + task.getId() + "]");
+                            }
                             try {
-                                Thread.sleep(500);
+                                Thread.sleep(100);
                             } catch (InterruptedException e) {
                                 e.printStackTrace();
                             }
                         }
-                        logger.debug("下载线程已全部关闭");
+                        logger.debug("下载线程已全部关闭[任务id:" + task.getId() + "]");
                         //设置任务状态为完成，保存至数据库中，并从TaskMap中移除
                         downloadTaskDAO.updateDownloadTaskStatus(task);
                         downloadTaskDAO.updateDownloadTask(task);

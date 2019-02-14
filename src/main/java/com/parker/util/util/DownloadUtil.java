@@ -230,41 +230,46 @@ public class DownloadUtil {
         public void run() {
             //设置任务状态为开始下载状态
             task.setStatus(EnumDownloadTaskStatus.DOWNLOADING.getCode());
-            long startTime = System.currentTimeMillis() / 1000;
+            long startTime = System.currentTimeMillis();
             long lastTempFileLength = tempFileSize;
             double currentSpeedKB = 0;
             double maxSpeedKB = 0;
             double remainTime = 0;
-            while (!(countDownLatch.getCount()==0) && tempFileSize<fileSize){
-                currentSpeedKB = (tempFileSize - lastTempFileLength) / 1000 / 0.5;
+            //取样时间(ms)
+            int timeDelta = 500;
+            while ((countDownLatch.getCount() > 1) && tempFileSize<fileSize){
+                currentSpeedKB = (tempFileSize - lastTempFileLength) / 1000 / timeDelta / 1000;
                 lastTempFileLength = tempFileSize;
                 maxSpeedKB = (maxSpeedKB < currentSpeedKB)? currentSpeedKB : maxSpeedKB;
                 //计算剩余时间
                 remainTime = (fileSize - tempFileSize) / 1000 / currentSpeedKB;
                 //保存相关的下载信息
                 task.setSavedFileSize(tempFileSize);
-                task.setMaxSpeed(maxSpeedKB);
-                task.setCurrentSpeed(currentSpeedKB);
+                task.setMaxSpeed(Math.round(maxSpeedKB));
+                task.setCurrentSpeed(Math.round(currentSpeedKB));
                 task.setRemainingTime(Math.round(remainTime));
                 // TODO: 2019/2/5 保存下载进度信息到Redis
                 try {
-                    Thread.sleep(500);
+                    Thread.sleep(timeDelta);
                 } catch (InterruptedException e) {
-                    e.printStackTrace();
+                    countDownLatch.countDown();
+                    logger.error("下载状态线程被中断[任务id:" + task.getId() + "]");
                 }
             }
-            task.setSavedFileSize(tempFileSize);
+            countDownLatch.countDown();
+            //当记录的已下载大小大于文件本身大小时
+            task.setSavedFileSize(tempFileSize > task.getFileSize() ? tempFileSize : task.getFileSize());
             if (task.getStatus().equals(EnumDownloadTaskStatus.DOWNLOADING.getCode())) {
-                long endTime = System.currentTimeMillis() / 1000;
+                long endTime = System.currentTimeMillis();
                 double spendTime = endTime - startTime;
                 double fileSizeKB = fileSize / 1.0 / 1000;
                 double fileSizeMB = fileSizeKB / 1000;
-                double avgSpeedKB = fileSizeKB / spendTime;
-                double avgSpeedMB = fileSizeMB / spendTime;
-                logger.debug("下载文件完成[文件名：" + task.getFileName() + "，总大小：" + doubleToStringWithFormat(fileSizeMB) + "MB，耗时：" + doubleToStringWithFormat(spendTime) + "秒，平均下载速度：" + doubleToStringWithFormat(avgSpeedMB) + "MB/s]");
-                task.setStartTime(startTime);
-                task.setEndTime(endTime);
-                task.setMaxSpeed(maxSpeedKB);
+                double avgSpeedKB = Math.round(fileSizeKB / spendTime * 1000);
+                double avgSpeedMB = Math.round(fileSizeMB / spendTime * 1000);
+                logger.debug("下载文件完成[文件名：" + task.getFileName() + "，总大小：" + doubleToStringWithFormat(fileSizeMB) + "MB，耗时：" + doubleToStringWithFormat(spendTime / 1000) + "秒，平均下载速度：" + doubleToStringWithFormat(avgSpeedMB) + "MB/s]");
+                task.setStartTime(startTime / 1000);
+                task.setEndTime(endTime / 1000);
+                task.setMaxSpeed(maxSpeedKB > avgSpeedKB ? maxSpeedKB : avgSpeedKB);
                 task.setAvgSpeed(avgSpeedKB);
                 task.setRemainingTime(0);
                 task.setSavedFileSize(tempFileSize);

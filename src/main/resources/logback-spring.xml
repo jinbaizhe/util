@@ -54,11 +54,11 @@
 
 	<logger name="org.springframework" level="ERROR" />
 	<logger name="com.atomikos" level="ERROR" /> 
-	<logger name="io.shardingjdbc.core.util.SQLLogger" level="ERROR" /> 
+	<!--<logger name="io.shardingjdbc.core.util.SQLLogger" level="ERROR" /> -->
 	<logger name="org.apache.ibatis.logging.jdbc.BaseJdbcLogger" level="ERROR" />
-	<logger name="Sharding-JDBC-SQL" level="ERROR" /> 
+	<!--<logger name="Sharding-JDBC-SQL" level="ERROR" /> -->
 	<logger name="com.parker" level="INFO" />
-	<logger name="com.xxl.job.core.log.XxlJobLogger" level="ERROR" /> 
+	<!--<logger name="com.xxl.job.core.log.XxlJobLogger" level="ERROR" /> -->
 
 	<logger name="report" level="INFO" additivity="false">
 		<appender-ref ref="report" />
