@@ -72,8 +72,13 @@ public class DownloadUtil {
     }
 
     public static long getFileLength(String address){
-        URLConnection connection = getURLConnection(address);
-        long length = connection.getContentLengthLong();
+        int count = 3;
+        long length = 0 ;
+        while (count > 0 && (length <= 0)){
+            URLConnection connection = getURLConnection(address);
+            length = connection.getContentLengthLong();
+            count--;
+        }
         return length;
     }
 
@@ -237,8 +242,14 @@ public class DownloadUtil {
             double remainTime = 0;
             //取样时间(ms)
             int timeDelta = 500;
+            long fileSizeDelta = 0;
             while ((countDownLatch.getCount() > 1) && tempFileSize<fileSize){
-                currentSpeedKB = (tempFileSize - lastTempFileLength) / 1000 / timeDelta / 1000;
+                fileSizeDelta = tempFileSize - lastTempFileLength;
+                if (fileSizeDelta ==0 ){
+                    continue;
+                }
+                currentSpeedKB = fileSizeDelta /1.0 / 1000 / (timeDelta / 1.0 / 1000);
+                System.out.println("currentSpeedKB:" + currentSpeedKB);
                 lastTempFileLength = tempFileSize;
                 maxSpeedKB = (maxSpeedKB < currentSpeedKB)? currentSpeedKB : maxSpeedKB;
                 //计算剩余时间
@@ -256,7 +267,6 @@ public class DownloadUtil {
                     logger.error("下载状态线程被中断[任务id:" + task.getId() + "]");
                 }
             }
-            countDownLatch.countDown();
             //当记录的已下载大小大于文件本身大小时
             task.setSavedFileSize(tempFileSize > task.getFileSize() ? tempFileSize : task.getFileSize());
             if (task.getStatus().equals(EnumDownloadTaskStatus.DOWNLOADING.getCode())) {
@@ -265,15 +275,17 @@ public class DownloadUtil {
                 double fileSizeKB = fileSize / 1.0 / 1000;
                 double fileSizeMB = fileSizeKB / 1000;
                 double avgSpeedKB = Math.round(fileSizeKB / spendTime * 1000);
-                double avgSpeedMB = Math.round(fileSizeMB / spendTime * 1000);
+                double avgSpeedMB = avgSpeedKB / 1000;
                 logger.debug("下载文件完成[文件名：" + task.getFileName() + "，总大小：" + doubleToStringWithFormat(fileSizeMB) + "MB，耗时：" + doubleToStringWithFormat(spendTime / 1000) + "秒，平均下载速度：" + doubleToStringWithFormat(avgSpeedMB) + "MB/s]");
                 task.setStartTime(startTime / 1000);
                 task.setEndTime(endTime / 1000);
                 task.setMaxSpeed(maxSpeedKB > avgSpeedKB ? maxSpeedKB : avgSpeedKB);
                 task.setAvgSpeed(avgSpeedKB);
+                task.setCurrentSpeed(0);
                 task.setRemainingTime(0);
                 task.setSavedFileSize(tempFileSize);
             }
+            countDownLatch.countDown();
         }
 
         @Override
