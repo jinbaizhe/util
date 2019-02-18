@@ -1,6 +1,5 @@
 package com.parker.util.util;
 
-import com.parker.util.dao.DownloadTaskDAO;
 import com.parker.util.entity.DownloadTask;
 import com.parker.util.entity.DownloadTaskProcess;
 import com.parker.util.entity.EnumDownloadTaskStatus;
@@ -8,17 +7,13 @@ import lombok.Data;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 
 import java.io.*;
 import java.net.*;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.Observable;
 import java.util.Observer;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 public class DownloadUtil {
     private static final Logger logger = LoggerFactory.getLogger(DownloadUtil.class);
@@ -86,9 +81,9 @@ public class DownloadUtil {
         long startTime = System.currentTimeMillis();
         double fileSize = 0;
         try {
-            RandomAccessFile file = new RandomAccessFile(saveLocation + fileName, "rwd");
+            RandomAccessFile file = new RandomAccessFile(tempFileLocation + fileName + "#0", "rwd");
             byte[] bytes = new byte[8192];
-            for (int i=0;i<partsNum;i++){
+            for (int i=1;i<partsNum;i++){
                 long startPosition = file.length();
                 file.seek(startPosition);
                 String tempFileName = tempFileLocation + fileName + "#" + i;
@@ -113,13 +108,19 @@ public class DownloadUtil {
                 }
             }
             if (file != null) {
-                fileSize = file.length()/1.0/1000/1000;
+                fileSize = file.length()/1.0/1024/1024;
                 file.close();
             }
+            File totalTempFile = new File(tempFileLocation + fileName + "#0");
+            if (totalTempFile.exists()){
+                totalTempFile.renameTo(new File(saveLocation + fileName));
+            }else {
+                logger.error("缓存文件丢失，需重新提交下载任务");
+            }
         } catch (FileNotFoundException e) {
-            e.printStackTrace();
+            logger.error(e.getMessage());
         }catch (IOException e){
-            e.printStackTrace();
+            logger.error(e.getMessage());
         }
         long endTime = System.currentTimeMillis();
         double spendTime = (endTime - startTime)/1000;
@@ -136,6 +137,21 @@ public class DownloadUtil {
             tempfile = new File(tempFileLocation + fileName);
         }
         return fileName;
+    }
+
+    public static long getTotalSpace(String filePath){
+        File file = new File(filePath);
+        return file.getTotalSpace();
+    }
+
+    public static long getUsableSpace(String filePath){
+        File file = new File(filePath);
+        return file.getUsableSpace();
+    }
+
+    public static long getUsedSpace(String filePath){
+        File file = new File(filePath);
+        return file.getTotalSpace() - file.getUsableSpace();
     }
 
     @Data
@@ -191,7 +207,7 @@ public class DownloadUtil {
                     try {
                         Thread.sleep(10000);
                     } catch (InterruptedException e1) {
-                        e1.printStackTrace();
+                        logger.error(e1.getMessage());
                     }
                 }finally {
                     count++;
@@ -206,7 +222,7 @@ public class DownloadUtil {
                             file.close();
                         }
                     }catch (IOException e){
-                        e.printStackTrace();
+                        logger.error(e.getMessage());
                     }
                 }
             }
@@ -248,12 +264,12 @@ public class DownloadUtil {
                 if (fileSizeDelta ==0 ){
                     continue;
                 }
-                currentSpeedKB = fileSizeDelta /1.0 / 1000 / (timeDelta / 1.0 / 1000);
+                currentSpeedKB = fileSizeDelta /1.0 / 1024 / (timeDelta / 1.0 / 1000);
                 System.out.println("currentSpeedKB:" + currentSpeedKB);
                 lastTempFileLength = tempFileSize;
                 maxSpeedKB = (maxSpeedKB < currentSpeedKB)? currentSpeedKB : maxSpeedKB;
                 //计算剩余时间
-                remainTime = (fileSize - tempFileSize) / 1000 / currentSpeedKB;
+                remainTime = (fileSize - tempFileSize) / 1024 / currentSpeedKB;
                 //保存相关的下载信息
                 task.setSavedFileSize(tempFileSize);
                 task.setMaxSpeed(Math.round(maxSpeedKB));
@@ -272,10 +288,10 @@ public class DownloadUtil {
             if (task.getStatus().equals(EnumDownloadTaskStatus.DOWNLOADING.getCode())) {
                 long endTime = System.currentTimeMillis();
                 double spendTime = endTime - startTime;
-                double fileSizeKB = fileSize / 1.0 / 1000;
-                double fileSizeMB = fileSizeKB / 1000;
-                double avgSpeedKB = Math.round(fileSizeKB / spendTime * 1000);
-                double avgSpeedMB = avgSpeedKB / 1000;
+                double fileSizeKB = fileSize / 1.0 / 1024;
+                double fileSizeMB = fileSizeKB / 1024;
+                double avgSpeedKB = Math.round(fileSizeKB / (spendTime / 1000));
+                double avgSpeedMB = avgSpeedKB / 1024;
                 logger.debug("下载文件完成[文件名：" + task.getFileName() + "，总大小：" + doubleToStringWithFormat(fileSizeMB) + "MB，耗时：" + doubleToStringWithFormat(spendTime / 1000) + "秒，平均下载速度：" + doubleToStringWithFormat(avgSpeedMB) + "MB/s]");
                 task.setStartTime(startTime / 1000);
                 task.setEndTime(endTime / 1000);
@@ -307,5 +323,4 @@ public class DownloadUtil {
             }
         }
     }
-
 }

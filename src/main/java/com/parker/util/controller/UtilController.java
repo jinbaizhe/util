@@ -2,7 +2,9 @@ package com.parker.util.controller;
 
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONArray;
+import com.parker.util.entity.AddDownloadTaskResponse;
 import com.parker.util.entity.DownloadTask;
+import com.parker.util.entity.ParseVideoResponse;
 import com.parker.util.util.ParseVideoUtil;
 import com.parker.util.service.DownloadService;
 import com.parker.util.entity.Video;
@@ -29,39 +31,65 @@ public class UtilController {
     public String parseVideo(@RequestHeader HashMap map, @RequestParam("url") String url){
         String headers = JSON.toJSONString(map);
         logger.info(headers);
+        ParseVideoResponse response = new ParseVideoResponse();
         Video video = ParseVideoUtil.parseVideoURL(url);
-        logger.info(video.getUrl());
-        return video.getUrl();
+        if (video==null || StringUtils.isBlank(video.getUrl())){
+            response.setMessage("解析视频地址时出错");
+        }else {
+            response.setUrl(video.getUrl());
+            response.setId(video.getId());
+            response.setDescription(video.getDesc());
+            response.setMessage("解析视频地址成功");
+        }
+        String result = JSON.toJSONString(response);
+        logger.info(result);
+        return result;
     }
 
     @RequestMapping("/download")
     @ResponseBody
-    public String download(@RequestHeader HashMap map, @RequestParam("url") String url){
+    public String download(@RequestHeader HashMap map, @RequestParam("url") String url,
+                           @RequestParam(value = "fileName",required = false) String fileName){
+        AddDownloadTaskResponse response = new AddDownloadTaskResponse();
         String headers = JSON.toJSONString(map);
         logger.info(headers);
         if (StringUtils.isBlank(url)){
-            return "地址输入有误";
+            response.setMessage("地址输入有误");
+        } else if (downloadService.isDiskFull()){
+            response.setMessage("服务器磁盘空间已满，任务提交失败");
+        } else {
+            DownloadTask task = null;
+            if (StringUtils.isBlank(fileName)) {
+                task = downloadService.addDownloadTask(url);
+            } else {
+                task = downloadService.addDownloadTask(url, fileName);
+            }
+            response.setMessage("提交下载任务成功");
+            response.setUrl(task.getUrl());
+            response.setFileName(task.getFileName());
+            response.setFileSize(task.getFileSize());
         }
-        downloadService.addDownloadTask(url);
-        return "下载任务提交成功";
+        return JSON.toJSONString(response);
     }
 
     @RequestMapping("/parseVideoAndDownload")
     @ResponseBody
     public String parseVideoAndDownload(@RequestHeader HashMap map, @RequestParam("url") String url){
+        AddDownloadTaskResponse response = new AddDownloadTaskResponse();
         String headers = JSON.toJSONString(map);
         logger.info(headers);
         if (StringUtils.isBlank(url)){
-            return "地址输入有误";
+            response.setMessage("地址输入有误");
+            return JSON.toJSONString(response);
         }
         url = url.trim();
         Video video = ParseVideoUtil.parseVideoURL(url);
         if (video==null || StringUtils.isBlank(video.getUrl())){
-            return "解析视频地址时出错";
+            response.setMessage("解析视频地址时出错");
+            return JSON.toJSONString(response);
         }
         String fileName = video.getDesc().replace("/","");
-        downloadService.addDownloadTask(video.getUrl(), fileName + ".mp4");
-        return "下载任务提交成功";
+        return download(map, video.getUrl(), fileName);
     }
 
     @RequestMapping("/getDownloadTask")
@@ -73,8 +101,22 @@ public class UtilController {
 
     @RequestMapping("/getAllCurrentDownloadTask")
     @ResponseBody
-    public String getDownloadTask(@RequestHeader HashMap map){
-        List<DownloadTask> taskList = downloadService.getAllCurrentDownloadTask();
+    public String getAllCurrentDownloadTask(@RequestHeader HashMap map){
+        List<DownloadTask> taskList = downloadService.getAllCurrentDownloadTaskList();
+        return JSONArray.toJSONString(taskList);
+    }
+
+    @RequestMapping("/getAllUnfinishedDownloadTask")
+    @ResponseBody
+    public String getAllUnfinishedDownloadTask(@RequestHeader HashMap map){
+        List<DownloadTask> taskList = downloadService.getAllUnfinishedDownloadTaskList();
+        return JSONArray.toJSONString(taskList);
+    }
+
+    @RequestMapping("/getAllWaitingTaskList")
+    @ResponseBody
+    public String getAllWaitingTaskList(@RequestHeader HashMap map){
+        List<DownloadTask> taskList = downloadService.getAllWaitingTaskList();
         return JSONArray.toJSONString(taskList);
     }
 
