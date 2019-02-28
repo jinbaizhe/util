@@ -1,4 +1,4 @@
-package com.parker.util.entity;
+package com.parker.util.response;
 
 import lombok.Data;
 

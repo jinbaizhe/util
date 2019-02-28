@@ -2,9 +2,9 @@ package com.parker.util.controller;
 
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONArray;
-import com.parker.util.entity.AddDownloadTaskResponse;
+import com.parker.util.response.AddDownloadTaskResponse;
 import com.parker.util.entity.DownloadTask;
-import com.parker.util.entity.ParseVideoResponse;
+import com.parker.util.response.ParseVideoResponse;
 import com.parker.util.util.ParseVideoUtil;
 import com.parker.util.service.DownloadService;
 import com.parker.util.entity.Video;
@@ -123,22 +123,16 @@ public class UtilController {
     @RequestMapping("/pauseDownloadTask")
     @ResponseBody
     public String pauseDownloadTask(@RequestHeader HashMap map, @RequestParam("taskId") String taskId){
-        boolean result = downloadService.pauseDownloadTask(taskId);
-        String s = "暂停任务失败";
-        if (result){
-            s = "暂停任务成功";
-        }
-        return s;
+        downloadService.pauseDownloadTask(taskId);
+        DownloadTask task = downloadService.getDownloadTask(taskId);
+        return JSON.toJSONString(task);
     }
 
     @RequestMapping("/resumeDownloadTask")
     @ResponseBody
     public String resumeDownloadTask(@RequestHeader HashMap map, @RequestParam("taskId") String taskId){
-        boolean result = downloadService.resumeDownloadTask(taskId);
-        String s = "恢复任务失败";
-        if (result){
-            s = "恢复任务成功";
-        }
-        return s;
+        downloadService.resumeDownloadTask(taskId);
+        DownloadTask task = downloadService.getDownloadTask(taskId);
+        return JSON.toJSONString(task);
     }
 }

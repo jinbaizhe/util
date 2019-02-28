@@ -1,12 +1,17 @@
 package com.parker.util.util;
 
+import com.alibaba.fastjson.JSON;
+import com.parker.util.constant.CommonConstant;
 import com.parker.util.entity.DownloadTask;
 import com.parker.util.entity.DownloadTaskProcess;
-import com.parker.util.entity.EnumDownloadTaskStatus;
+import com.parker.util.enums.EnumDownloadTaskStatus;
 import lombok.Data;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Component;
 
 import java.io.*;
 import java.net.*;
@@ -15,10 +20,17 @@ import java.util.Observable;
 import java.util.Observer;
 import java.util.concurrent.CountDownLatch;
 
+@Component
 public class DownloadUtil {
     private static final Logger logger = LoggerFactory.getLogger(DownloadUtil.class);
 
-    public static String getFileName(String address){
+    @Value("${download.redis-db-index}")
+    private int dbIndex;
+
+    @Autowired
+    private RedisManager redisManager;
+
+    public String getFileName(String address){
         int index = address.lastIndexOf('/');
         if (index != -1){
             address = address.substring(index + 1);
@@ -31,11 +43,11 @@ public class DownloadUtil {
         return "unname";
     }
 
-    public static String doubleToStringWithFormat(double d){
+    public String doubleToStringWithFormat(double d){
         return String.format("%.2f", d);
     }
 
-    public static boolean isValidURL(String address){
+    public boolean isValidURL(String address){
         HttpURLConnection connection = null;
         connection = (HttpURLConnection)getURLConnection(address);
         connection.setReadTimeout(5000);
@@ -51,7 +63,7 @@ public class DownloadUtil {
         return false;
     }
 
-    public static URLConnection getURLConnection(String address){
+    public URLConnection getURLConnection(String address){
         if (StringUtils.isBlank(address)){
             return null;
         }
@@ -66,7 +78,7 @@ public class DownloadUtil {
         return connection;
     }
 
-    public static long getFileLength(String address){
+    public long getFileLength(String address){
         int count = 3;
         long length = 0 ;
         while (count > 0 && (length <= 0)){
@@ -77,7 +89,7 @@ public class DownloadUtil {
         return length;
     }
 
-    public static void mergeFile(int partsNum, String saveLocation, String fileName, String tempFileLocation){
+    public void mergeFile(int partsNum, String saveLocation, String fileName, String tempFileLocation){
         long startTime = System.currentTimeMillis();
         double fileSize = 0;
         try {
@@ -128,7 +140,7 @@ public class DownloadUtil {
         logger.debug("合并文件完成[文件名：" + fileName + "，总大小：" + doubleToStringWithFormat(fileSize) + "MB，耗时：" + doubleToStringWithFormat(spendTime) + "秒,速度：" + doubleToStringWithFormat(speed) + "MB/s]");
     }
 
-    public static String getNewFileNameIfExists(String saveLocation, String fileName, String tempFileLocation){
+    public String getNewFileNameIfExists(String saveLocation, String fileName, String tempFileLocation){
         File savefile = new File(saveLocation + fileName);
         File tempfile = new File(tempFileLocation + fileName);
         while (savefile.exists() || tempfile.exists()){
@@ -139,23 +151,23 @@ public class DownloadUtil {
         return fileName;
     }
 
-    public static long getTotalSpace(String filePath){
+    public long getTotalSpace(String filePath){
         File file = new File(filePath);
         return file.getTotalSpace();
     }
 
-    public static long getUsableSpace(String filePath){
+    public long getUsableSpace(String filePath){
         File file = new File(filePath);
         return file.getUsableSpace();
     }
 
-    public static long getUsedSpace(String filePath){
+    public long getUsedSpace(String filePath){
         File file = new File(filePath);
         return file.getTotalSpace() - file.getUsableSpace();
     }
 
     @Data
-    public static class DownloadThread extends Observable implements Runnable{
+    public class DownloadThread extends Observable implements Runnable{
         private DownloadTask task;
         private long start;
         private long end;
@@ -230,7 +242,7 @@ public class DownloadUtil {
     }
 
     @Data
-    public static class DownloadStatusThread implements Runnable,Observer {
+    public class DownloadStatusThread implements Runnable,Observer {
         private long fileSize;
         private long tempFileSize;
         private DownloadTask task;
@@ -265,7 +277,6 @@ public class DownloadUtil {
                     continue;
                 }
                 currentSpeedKB = fileSizeDelta /1.0 / 1024 / (timeDelta / 1.0 / 1000);
-                System.out.println("currentSpeedKB:" + currentSpeedKB);
                 lastTempFileLength = tempFileSize;
                 maxSpeedKB = (maxSpeedKB < currentSpeedKB)? currentSpeedKB : maxSpeedKB;
                 //计算剩余时间
@@ -275,7 +286,8 @@ public class DownloadUtil {
                 task.setMaxSpeed(Math.round(maxSpeedKB));
                 task.setCurrentSpeed(Math.round(currentSpeedKB));
                 task.setRemainingTime(Math.round(remainTime));
-                // TODO: 2019/2/5 保存下载进度信息到Redis
+                String key = CommonConstant.DOWNLOAD_TASK + CommonConstant.REDIS_KEY_SEPARATOR + task.getId();
+                redisManager.set(dbIndex, key, JSON.toJSONString(task));
                 try {
                     Thread.sleep(timeDelta);
                 } catch (InterruptedException e) {
@@ -301,6 +313,9 @@ public class DownloadUtil {
                 task.setRemainingTime(0);
                 task.setSavedFileSize(tempFileSize);
             }
+            //移除Redis中的记录
+            String key = CommonConstant.DOWNLOAD_TASK + CommonConstant.REDIS_KEY_SEPARATOR + task.getId();
+            redisManager.delMatchKey(0, key);
             countDownLatch.countDown();
         }
 

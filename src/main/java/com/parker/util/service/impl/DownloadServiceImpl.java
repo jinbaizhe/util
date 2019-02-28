@@ -1,17 +1,21 @@
 package com.parker.util.service.impl;
 
 import com.alibaba.fastjson.JSON;
+import com.alibaba.fastjson.JSONObject;
+import com.parker.util.constant.CommonConstant;
 import com.parker.util.dao.DownloadTaskDAO;
 import com.parker.util.entity.DownloadTask;
 import com.parker.util.entity.DownloadTaskProcess;
-import com.parker.util.entity.EnumDownloadTaskStatus;
+import com.parker.util.enums.EnumDownloadTaskStatus;
 import com.parker.util.util.DownloadUtil;
 import com.parker.util.service.DownloadService;
+import com.parker.util.util.RedisManager;
 import lombok.Data;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.io.*;
@@ -25,18 +29,33 @@ public class DownloadServiceImpl implements DownloadService{
     private ExecutorService executorService = new ThreadPoolExecutor(1, 1,
             0L, TimeUnit.MILLISECONDS,
             new LinkedBlockingQueue<Runnable>());
-    private final String saveLocation = "/opt/download/";
-    private final String tempFileLocation = "/opt/tmp/";
+
+    @Value("${download.save-localtion}")
+    private String saveLocation;
+
+    @Value("${download.temp-localtion}")
+    private String tempLocation;
+
     private final Map<String, DownloadTask> taskMap = new ConcurrentHashMap<>();
     private final Map<String, DownloadTaskProcess> taskProcessMap = new ConcurrentHashMap<>();
     private final int downloadThreadNum = 3;
     private final int retryCount = 3;
     private AtomicBoolean diskIsFull = new AtomicBoolean(false);
+
+    @Value("${download.redis-db-index}")
+    private int dbIndex;
+
     @Autowired
     private DownloadTaskDAO downloadTaskDAO;
 
+    @Autowired
+    private DownloadUtil downloadUtil;
+
+    @Autowired
+    private RedisManager redisManager;
+
     public void download(DownloadTask task, int threadsNum){
-        download(task, saveLocation, task.getFileName(), tempFileLocation, threadsNum);
+        download(task, saveLocation, task.getFileName(), tempLocation, threadsNum);
     }
 
     public void download(DownloadTask task, String saveLocation, String fileName, String tempFileLocation, int threadsNum){
@@ -45,16 +64,16 @@ public class DownloadServiceImpl implements DownloadService{
             saveLocation = this.saveLocation;
         }
         if (StringUtils.isBlank(tempFileLocation)){
-            tempFileLocation = this.tempFileLocation;
+            tempFileLocation = this.tempLocation;
         }
         //检查磁盘剩余可用空间
         //默认需要两倍待下载文件的大小的空间
         long needSpace = 2 * task.getFileSize();
-        while ((DownloadUtil.getUsableSpace(tempFileLocation) < needSpace) || (DownloadUtil.getUsableSpace(saveLocation) < needSpace)){
+        while ((downloadUtil.getUsableSpace(tempFileLocation) < needSpace) || (downloadUtil.getUsableSpace(saveLocation) < needSpace)){
             try {
                 diskIsFull.set(true);
-                long usableSpaceInTempFileLocation = DownloadUtil.getUsableSpace(tempFileLocation);
-                long usableSpaceInSaveLocation = DownloadUtil.getUsableSpace(saveLocation);
+                long usableSpaceInTempFileLocation = downloadUtil.getUsableSpace(tempFileLocation);
+                long usableSpaceInSaveLocation = downloadUtil.getUsableSpace(saveLocation);
                 logger.error("磁盘可用空间不足[下载目录所在分区可用大小：" + usableSpaceInSaveLocation
                         + "B，缓存目录所在分区可用大小：" + usableSpaceInTempFileLocation + "B]，无法完成下载。");
                 //等待5分钟
@@ -79,12 +98,12 @@ public class DownloadServiceImpl implements DownloadService{
         long partLength = task.getFileSize() / threadsNum;
         //记录任务信息
         //解决重名的问题
-        fileName = DownloadUtil.getNewFileNameIfExists(saveLocation, fileName, tempFileLocation);
+        fileName = downloadUtil.getNewFileNameIfExists(saveLocation, fileName, tempFileLocation);
         taskMap.put(task.getId(), task);
         //创建下载线程
         ExecutorService executorService = Executors.newFixedThreadPool(threadsNum);
         //启动显示下载状态的线程
-        DownloadUtil.DownloadStatusThread downloadStatusThread = new DownloadUtil.DownloadStatusThread(task, countDownLatch);
+        DownloadUtil.DownloadStatusThread downloadStatusThread = downloadUtil.new DownloadStatusThread(task, countDownLatch);
         Thread statusThread = new Thread(downloadStatusThread);
         statusThread.start();
         DownloadTaskProcess downloadTaskProcess = new DownloadTaskProcess();
@@ -100,7 +119,7 @@ public class DownloadServiceImpl implements DownloadService{
             String tempFileName = fileName + "#" + i;
             DownloadTaskProcess.DownloadThreadProcess threadProcess = new DownloadTaskProcess.DownloadThreadProcess();
             downloadTaskProcess.getDownloadThreadProcessMap().put(tempFileName, threadProcess);
-            DownloadUtil.DownloadThread downloadThread = new DownloadUtil.DownloadThread(task, start, end, tempFileName, tempFileLocation, countDownLatch);
+            DownloadUtil.DownloadThread downloadThread = downloadUtil.new DownloadThread(task, start, end, tempFileName, tempFileLocation, countDownLatch);
             downloadThread.addObserver(downloadStatusThread);
             executorService.submit(downloadThread);
         }
@@ -111,7 +130,7 @@ public class DownloadServiceImpl implements DownloadService{
                 task.setStatus(EnumDownloadTaskStatus.MERGING.getCode());
                 //合并分块文件
                 logger.debug("开始合并分块文件[任务id:" + task.getId() + "]");
-                DownloadUtil.mergeFile(threadsNum, saveLocation, fileName, tempFileLocation);
+                downloadUtil.mergeFile(threadsNum, saveLocation, fileName, tempFileLocation);
                 logger.debug("合并分块文件完成[任务id:" + task.getId() + "]");
                 task.setStatus(EnumDownloadTaskStatus.FINISHED.getCode());
                 taskProcessMap.remove(task.getId());
@@ -145,14 +164,14 @@ public class DownloadServiceImpl implements DownloadService{
 
     @Override
     public DownloadTask addDownloadTask(String url) {
-        String fileName = DownloadUtil.getFileName(url);
+        String fileName = downloadUtil.getFileName(url);
         return addDownloadTask(url, fileName);
     }
 
     @Override
     public DownloadTask addDownloadTask(String url, String fileName) {
         url = url.trim();
-        long length = DownloadUtil.getFileLength(url);
+        long length = downloadUtil.getFileLength(url);
         //添加下载任务信息
         DownloadTask task = new DownloadTask();
         task.setUrl(url);
@@ -164,7 +183,7 @@ public class DownloadServiceImpl implements DownloadService{
         DownloadTaskRunnable downloadTaskRunnable = new DownloadTaskRunnable();
         downloadTaskRunnable.setTask(task);
         downloadTaskRunnable.setSaveLocation(saveLocation);
-        downloadTaskRunnable.setTempFileLocation(tempFileLocation);
+        downloadTaskRunnable.setTempFileLocation(tempLocation);
         downloadTaskRunnable.setFileName(fileName);
         downloadTaskRunnable.setThreadsNum(downloadThreadNum);
         executorService.execute(downloadTaskRunnable);
@@ -174,6 +193,10 @@ public class DownloadServiceImpl implements DownloadService{
     @Override
     public DownloadTask getDownloadTask(String taskId){
         DownloadTask downloadTask = taskMap.get(taskId);
+        if (downloadTask == null){
+            String key = CommonConstant.DOWNLOAD_TASK + CommonConstant.REDIS_KEY_SEPARATOR + taskId;
+            downloadTask = JSONObject.parseObject(redisManager.get(dbIndex, key), DownloadTask.class);
+        }
         if (downloadTask == null){
             downloadTask = downloadTaskDAO.getDownloadTaskById(taskId);
         }
@@ -196,7 +219,11 @@ public class DownloadServiceImpl implements DownloadService{
             return false;
         }
         if (task.getStatus().equals(EnumDownloadTaskStatus.DOWNLOADING.getCode())) {
+            // TODO: 2019/2/28 还需要执行暂停操作，中断下载线程
             task.setStatus(EnumDownloadTaskStatus.PAUSE.getCode());
+            //保存信息到Redis
+            String key = CommonConstant.DOWNLOAD_TASK + CommonConstant.REDIS_KEY_SEPARATOR + task.getId();
+            redisManager.set(dbIndex, key, JSON.toJSONString(task));
             downloadTaskDAO.updateDownloadTaskStatus(task);
             return true;
         }
@@ -205,9 +232,11 @@ public class DownloadServiceImpl implements DownloadService{
 
     @Override
     public boolean resumeDownloadTask(String taskId) {
+        // TODO: 2019/2/28 还需判断任务是否已经在执行
         executorService.execute(new Runnable() {
             @Override
             public void run() {
+                // TODO: 2019/2/28 优化：减少该部分的冗余代码
                 DownloadTask task = getDownloadTask(taskId);
                 if (task != null && task.getStatus().equals(EnumDownloadTaskStatus.PAUSE.getCode())) {
                     task.setStatus(EnumDownloadTaskStatus.DOWNLOADING.getCode());
@@ -223,7 +252,7 @@ public class DownloadServiceImpl implements DownloadService{
                         //创建下载线程
                         ExecutorService executorService = Executors.newFixedThreadPool(threadsNum);
                         //启动显示下载状态的线程
-                        DownloadUtil.DownloadStatusThread downloadStatusThread = new DownloadUtil.DownloadStatusThread(task, countDownLatch);
+                        DownloadUtil.DownloadStatusThread downloadStatusThread = downloadUtil.new DownloadStatusThread(task, countDownLatch);
                         Thread statusThread = new Thread(downloadStatusThread);
                         statusThread.start();
                         //建立分块任务，并分配给线程池
@@ -231,7 +260,7 @@ public class DownloadServiceImpl implements DownloadService{
                             DownloadTaskProcess.DownloadThreadProcess threadProcess = threadProcessMap.get(tempFileName);
                             long start = threadProcess.getCurrentPosition();
                             long end = threadProcess.getEnd();
-                            DownloadUtil.DownloadThread downloadThread = new DownloadUtil.DownloadThread(task, start, end, tempFileName, tempFileLocation, countDownLatch);
+                            DownloadUtil.DownloadThread downloadThread = downloadUtil.new DownloadThread(task, start, end, tempFileName, tempLocation, countDownLatch);
                             downloadThread.addObserver(downloadStatusThread);
                             executorService.submit(downloadThread);
                         }
@@ -242,7 +271,7 @@ public class DownloadServiceImpl implements DownloadService{
                                 task.setStatus(EnumDownloadTaskStatus.MERGING.getCode());
                                 //合并分块文件
                                 logger.debug("开始合并分块文件[任务id:" + task.getId() + "]");
-                                DownloadUtil.mergeFile(threadsNum, saveLocation, task.getFileName(), tempFileLocation);
+                                downloadUtil.mergeFile(threadsNum, saveLocation, task.getFileName(), tempLocation);
                                 logger.debug("合并分块文件完成[任务id:" + task.getId() + "]");
                                 task.setStatus(EnumDownloadTaskStatus.FINISHED.getCode());
                                 taskProcessMap.remove(task.getId());
