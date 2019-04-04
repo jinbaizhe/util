@@ -16,6 +16,8 @@ import org.apache.http.message.BasicNameValuePair;
 import org.apache.http.util.EntityUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
 
 import java.io.*;
 import java.util.ArrayList;
@@ -24,6 +26,7 @@ import java.util.Random;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+@Component
 public class ParseVideoUtil {
     private static final Logger logger = LoggerFactory.getLogger(ParseVideoUtil.class);
     private static final Pattern urlPattern = Pattern.compile("\"url\":\"([^\"]*)\",");
@@ -31,7 +34,10 @@ public class ParseVideoUtil {
     private static final Pattern hashPattern = Pattern.compile("var\\s*hash\\s*=\\s*\"([^\"]*)\";", Pattern.CASE_INSENSITIVE);
     private static final String userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/?.?.?.? Safari/537.36";
 
-    private static HttpPost getApiHttpPost(String url, String hashValue){
+    @Autowired
+    private DownloadUtil downloadUtil;
+
+    private HttpPost getApiHttpPost(String url, String hashValue){
         HttpPost httpPost = new HttpPost("https://www.parsevideo.com/api.php");
         //构造请求头
         httpPost.setHeader("accept", "text/javascript, application/javascript, application/ecmascript, application/x-ecmascript, */*; q=0.01");
@@ -56,25 +62,36 @@ public class ParseVideoUtil {
         return httpPost;
     }
 
-    public static Video parseVideoURL(String url){
+    public Video parseVideoURL(String url){
         if (StringUtils.isBlank(url)){
             return null;
         }
         CloseableHttpClient httpClient = HttpClients.createDefault();
         String hashValue = getHashValue(httpClient);
         HttpPost httpPost = getApiHttpPost(url, hashValue);
+        VideoParseResponse videoParseResponse = null;
         Video video = null;
         try {
             CloseableHttpResponse response = httpClient.execute(httpPost);
-            video = parseResponse(response);
+            videoParseResponse = parseResponse(response);
             response.close();
+            if (videoParseResponse != null){
+                for (VideoParseResponse.VideoParseResponseInfo videoParseResponseInfo : videoParseResponse.getVideo()){
+                    if (downloadUtil.getFileLength(videoParseResponseInfo.getUrl()) > 0){
+                        video = new Video();
+                        video.setDesc(videoParseResponseInfo.getUrl());
+                        video.setUrl(videoParseResponseInfo.getUrl());
+                        return video;
+                    }
+                }
+            }
         } catch (IOException e) {
             e.printStackTrace();
         }
         return video;
     }
 
-    private static String getHashValue(CloseableHttpClient httpClient){
+    private String getHashValue(CloseableHttpClient httpClient){
         HttpGet httpGet = new HttpGet("https://www.parsevideo.com");
         httpGet.setHeader("user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/71.0.3578.98 Safari/537.36");
 
@@ -96,7 +113,7 @@ public class ParseVideoUtil {
         return hashValue;
     }
 
-    private static Video parseResponse(CloseableHttpResponse response){
+    private  VideoParseResponse parseResponse(CloseableHttpResponse response){
         Video video = null;
         HttpEntity entity = response.getEntity();
         String content = null;
@@ -105,17 +122,15 @@ public class ParseVideoUtil {
             logger.info(content);
             EntityUtils.consume(entity);
         } catch (IOException e) {
-            logger.error(content);
-            e.printStackTrace();
+            logger.error("解析时遇到错误:" + content);
+            return null;
         }
         int beginIndex = content.indexOf('{');
         int endIndex = content.lastIndexOf('}');
         String jsonString = content.substring(beginIndex, endIndex+1);
         VideoParseResponse videoParseResponse = JSONObject.parseObject(jsonString, VideoParseResponse.class);
         if (videoParseResponse != null && videoParseResponse.getVideo() != null && videoParseResponse.getVideo().get(0) != null){
-            video = new Video();
-            video.setDesc(videoParseResponse.getVideo().get(0).getDesc());
-            video.setUrl(videoParseResponse.getVideo().get(0).getUrl());
+            return videoParseResponse;
         }else if ((videoParseResponse != null) && (videoParseResponse.getStatus() != null) && videoParseResponse.getStatus().equals("error")){
             logger.error("地址输入错误，无法解析");
         }else if (videoParseResponse != null &&  (videoParseResponse.getCaptcha() != null) && videoParseResponse.getCaptcha().equals("ok")){
@@ -124,12 +139,10 @@ public class ParseVideoUtil {
             //此时可能要求输入验证码
             logger.error("解析时遇到未知错误");
         }
-        logger.debug("response content:" + content);
-        logger.debug("json string:" + jsonString);
-        return video;
+        return null;
     }
 
-    private static String getRandomUserAgent(){
+    private String getRandomUserAgent(){
         String s = userAgent;
         Random random = new Random();
         while (s.indexOf('?') != -1){

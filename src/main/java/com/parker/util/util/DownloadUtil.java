@@ -72,6 +72,7 @@ public class DownloadUtil {
             URL url = new URL(address);
             connection = url.openConnection();
             connection.setRequestProperty("user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/71.0.3578.98 Safari/537.36");
+            connection.setReadTimeout(2000);
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -135,7 +136,7 @@ public class DownloadUtil {
             logger.error(e.getMessage());
         }
         long endTime = System.currentTimeMillis();
-        double spendTime = (endTime - startTime)/1000;
+        double spendTime = (endTime - startTime) / 1.0 / 1000;
         double speed = fileSize/spendTime;
         logger.debug("合并文件完成[文件名：" + fileName + "，总大小：" + doubleToStringWithFormat(fileSize) + "MB，耗时：" + doubleToStringWithFormat(spendTime) + "秒,速度：" + doubleToStringWithFormat(speed) + "MB/s]");
     }
@@ -280,7 +281,7 @@ public class DownloadUtil {
                 lastTempFileLength = tempFileSize;
                 maxSpeedKB = (maxSpeedKB < currentSpeedKB)? currentSpeedKB : maxSpeedKB;
                 //计算剩余时间
-                remainTime = (fileSize - tempFileSize) / 1024 / currentSpeedKB;
+                remainTime = (fileSize - tempFileSize) / 1.0 / 1024 / currentSpeedKB;
                 //保存相关的下载信息
                 task.setSavedFileSize(tempFileSize);
                 task.setMaxSpeed(Math.round(maxSpeedKB));

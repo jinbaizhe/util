@@ -1,20 +1,27 @@
 package com.parker.util.util;
 
 import org.springframework.beans.factory.InitializingBean;
-import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisPool;
 import redis.clients.jedis.JedisPoolConfig;
 
 @Component
-@ConfigurationProperties(prefix = "redis")
 public class RedisUtil implements InitializingBean {
     private Jedis redis = null;
     private JedisPool pool = null;
+
+    @Value("${redis.auth}")
     private String auth = null;
+
+    @Value("${redis.host}")
     private String host = null;
+
+    @Value("${redis.max-total}")
     private String maxTotal = "20";
+
+    @Value("${redis.max-idle}")
     private String maxIdle = "5";
 
     public RedisUtil() {
@@ -51,8 +58,8 @@ public class RedisUtil implements InitializingBean {
     public void init() {
         if (this.pool == null) {
             JedisPoolConfig config = new JedisPoolConfig();
-            config.setMaxTotal(Integer.valueOf(this.maxTotal));
-            config.setMaxIdle(Integer.valueOf(this.maxIdle));
+            config.setMaxTotal(Integer.parseInt(this.maxTotal));
+            config.setMaxIdle(Integer.parseInt(this.maxIdle));
             config.setMaxWaitMillis(5000L);
             config.setTestOnBorrow(true);
             this.pool = new JedisPool(config, this.host, 6379, 8000, this.auth);

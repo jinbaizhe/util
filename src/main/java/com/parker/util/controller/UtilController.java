@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 @Controller
 @RequestMapping("/util")
@@ -26,13 +27,15 @@ public class UtilController {
     @Autowired
     private DownloadService downloadService;
 
+    @Autowired
+    private ParseVideoUtil parseVideoUtil;
+
     @RequestMapping("/parseVideo")
     @ResponseBody
     public String parseVideo(@RequestHeader HashMap map, @RequestParam("url") String url){
-        String headers = JSON.toJSONString(map);
-        logger.info(headers);
+        logHeader(map);
         ParseVideoResponse response = new ParseVideoResponse();
-        Video video = ParseVideoUtil.parseVideoURL(url);
+        Video video = parseVideoUtil.parseVideoURL(url);
         if (video==null || StringUtils.isBlank(video.getUrl())){
             response.setMessage("解析视频地址时出错");
         }else {
@@ -50,9 +53,8 @@ public class UtilController {
     @ResponseBody
     public String download(@RequestHeader HashMap map, @RequestParam("url") String url,
                            @RequestParam(value = "fileName",required = false) String fileName){
+        logHeader(map);
         AddDownloadTaskResponse response = new AddDownloadTaskResponse();
-        String headers = JSON.toJSONString(map);
-        logger.info(headers);
         if (StringUtils.isBlank(url)){
             response.setMessage("地址输入有误");
         } else if (downloadService.isDiskFull()){
@@ -75,15 +77,14 @@ public class UtilController {
     @RequestMapping("/parseVideoAndDownload")
     @ResponseBody
     public String parseVideoAndDownload(@RequestHeader HashMap map, @RequestParam("url") String url){
+        logHeader(map);
         AddDownloadTaskResponse response = new AddDownloadTaskResponse();
-        String headers = JSON.toJSONString(map);
-        logger.info(headers);
         if (StringUtils.isBlank(url)){
             response.setMessage("地址输入有误");
             return JSON.toJSONString(response);
         }
         url = url.trim();
-        Video video = ParseVideoUtil.parseVideoURL(url);
+        Video video = parseVideoUtil.parseVideoURL(url);
         if (video==null || StringUtils.isBlank(video.getUrl())){
             response.setMessage("解析视频地址时出错");
             return JSON.toJSONString(response);
@@ -95,6 +96,7 @@ public class UtilController {
     @RequestMapping("/getDownloadTask")
     @ResponseBody
     public String getDownloadTask(@RequestHeader HashMap map, @RequestParam("taskId") String taskId){
+        logHeader(map);
         DownloadTask downloadTask = downloadService.getDownloadTask(taskId);
         return JSON.toJSONString(downloadTask);
     }
@@ -102,6 +104,7 @@ public class UtilController {
     @RequestMapping("/getAllCurrentDownloadTask")
     @ResponseBody
     public String getAllCurrentDownloadTask(@RequestHeader HashMap map){
+        logHeader(map);
         List<DownloadTask> taskList = downloadService.getAllCurrentDownloadTaskList();
         return JSONArray.toJSONString(taskList);
     }
@@ -109,6 +112,7 @@ public class UtilController {
     @RequestMapping("/getAllUnfinishedDownloadTask")
     @ResponseBody
     public String getAllUnfinishedDownloadTask(@RequestHeader HashMap map){
+        logHeader(map);
         List<DownloadTask> taskList = downloadService.getAllUnfinishedDownloadTaskList();
         return JSONArray.toJSONString(taskList);
     }
@@ -116,6 +120,7 @@ public class UtilController {
     @RequestMapping("/getAllWaitingTaskList")
     @ResponseBody
     public String getAllWaitingTaskList(@RequestHeader HashMap map){
+        logHeader(map);
         List<DownloadTask> taskList = downloadService.getAllWaitingTaskList();
         return JSONArray.toJSONString(taskList);
     }
@@ -123,6 +128,7 @@ public class UtilController {
     @RequestMapping("/pauseDownloadTask")
     @ResponseBody
     public String pauseDownloadTask(@RequestHeader HashMap map, @RequestParam("taskId") String taskId){
+        logHeader(map);
         downloadService.pauseDownloadTask(taskId);
         DownloadTask task = downloadService.getDownloadTask(taskId);
         return JSON.toJSONString(task);
@@ -131,8 +137,14 @@ public class UtilController {
     @RequestMapping("/resumeDownloadTask")
     @ResponseBody
     public String resumeDownloadTask(@RequestHeader HashMap map, @RequestParam("taskId") String taskId){
+        logHeader(map);
         downloadService.resumeDownloadTask(taskId);
         DownloadTask task = downloadService.getDownloadTask(taskId);
         return JSON.toJSONString(task);
+    }
+
+    private void logHeader(Map map){
+        String headers = JSON.toJSONString(map);
+        logger.info(headers);
     }
 }
