@@ -52,7 +52,7 @@ public class UtilController {
     @RequestMapping("/download")
     @ResponseBody
     public String download(@RequestHeader HashMap map, @RequestParam("url") String url,
-                           @RequestParam(value = "fileName",required = false) String fileName){
+                           @RequestParam(value = "fileName",required = false) String fileName, Boolean isRecord){
         logHeader(map);
         AddDownloadTaskResponse response = new AddDownloadTaskResponse();
         if (StringUtils.isBlank(url)){
@@ -62,9 +62,9 @@ public class UtilController {
         } else {
             DownloadTask task = null;
             if (StringUtils.isBlank(fileName)) {
-                task = downloadService.addDownloadTask(url);
+                task = downloadService.addDownloadTask(url, isRecord);
             } else {
-                task = downloadService.addDownloadTask(url, fileName);
+                task = downloadService.addDownloadTask(url, fileName, isRecord);
             }
             response.setMessage("提交下载任务成功");
             response.setUrl(task.getUrl());
@@ -89,8 +89,8 @@ public class UtilController {
             response.setMessage("解析视频地址时出错");
             return JSON.toJSONString(response);
         }
-        String fileName = video.getDesc().replace("/","");
-        return download(map, video.getUrl(), fileName);
+        String fileName = video.getDesc().replace("/","") + ".mp4";
+        return download(map, video.getUrl(), fileName, true);
     }
 
     @RequestMapping("/getDownloadTask")
@@ -141,6 +141,20 @@ public class UtilController {
         downloadService.resumeDownloadTask(taskId);
         DownloadTask task = downloadService.getDownloadTask(taskId);
         return JSON.toJSONString(task);
+    }
+
+    @RequestMapping("/downloadByRecord")
+    @ResponseBody
+    public String downloadByRecord(@RequestHeader HashMap map,
+                                   @RequestParam(value = "taskId", required = false) String taskId,
+                                   @RequestParam(value = "startIndex", required = false) String startIndex,
+                                   @RequestParam(value = "endIndex", required = false) String endIndex){
+        logHeader(map);
+        if (taskId != null){
+            DownloadTask task = downloadService.getDownloadTask(taskId);
+            download(map, task.getUrl(), task.getFileName(), false);
+        }
+        return "提交成功";
     }
 
     private void logHeader(Map map){

@@ -76,13 +76,13 @@ public class ParseVideoUtil {
             videoParseResponse = parseResponse(response);
             response.close();
             if (videoParseResponse != null){
-                for (VideoParseResponse.VideoParseResponseInfo videoParseResponseInfo : videoParseResponse.getVideo()){
-                    if (downloadUtil.getFileLength(videoParseResponseInfo.getUrl()) > 0){
-                        video = new Video();
-                        video.setDesc(videoParseResponseInfo.getUrl());
-                        video.setUrl(videoParseResponseInfo.getUrl());
-                        return video;
-                    }
+                List<VideoParseResponse.VideoParseResponseInfo> videoList = videoParseResponse.getVideo();
+                if (videoList.size() > 0) {
+                    VideoParseResponse.VideoParseResponseInfo videoParseResponseInfo = videoList.get(videoList.size() - 1);
+                    video = new Video();
+                    video.setDesc(videoParseResponseInfo.getDesc());
+                    video.setUrl(videoParseResponseInfo.getUrl());
+                    return video;
                 }
             }
         } catch (IOException e) {

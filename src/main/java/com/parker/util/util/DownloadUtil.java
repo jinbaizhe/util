@@ -80,7 +80,7 @@ public class DownloadUtil {
     }
 
     public long getFileLength(String address){
-        int count = 3;
+        int count = 2;
         long length = 0 ;
         while (count > 0 && (length <= 0)){
             URLConnection connection = getURLConnection(address);
@@ -265,6 +265,7 @@ public class DownloadUtil {
             //设置任务状态为开始下载状态
             task.setStatus(EnumDownloadTaskStatus.DOWNLOADING.getCode());
             long startTime = System.currentTimeMillis();
+            task.setStartTime(startTime);
             long lastTempFileLength = tempFileSize;
             double currentSpeedKB = 0;
             double maxSpeedKB = 0;
@@ -318,6 +319,7 @@ public class DownloadUtil {
             String key = CommonConstant.DOWNLOAD_TASK + CommonConstant.REDIS_KEY_SEPARATOR + task.getId();
             redisManager.delMatchKey(0, key);
             countDownLatch.countDown();
+            logger.info("文件下载成功：文件名：{}， 平均下载速度：{}", task.getFileName(), task.getAvgSpeed());
         }
 
         @Override

@@ -163,13 +163,13 @@ public class DownloadServiceImpl implements DownloadService{
     }
 
     @Override
-    public DownloadTask addDownloadTask(String url) {
+    public DownloadTask addDownloadTask(String url, boolean isRecord) {
         String fileName = downloadUtil.getFileName(url);
-        return addDownloadTask(url, fileName);
+        return addDownloadTask(url, fileName, isRecord);
     }
 
     @Override
-    public DownloadTask addDownloadTask(String url, String fileName) {
+    public DownloadTask addDownloadTask(String url, String fileName, boolean isRecord) {
         url = url.trim();
         long length = downloadUtil.getFileLength(url);
         //添加下载任务信息
@@ -178,7 +178,9 @@ public class DownloadServiceImpl implements DownloadService{
         task.setFileName(fileName);
         task.setFileSize(length);
         task.setStatus(EnumDownloadTaskStatus.NOT_STARTED.getCode());
-        downloadTaskDAO.addDownloadTask(task);
+        if (isRecord) {
+            downloadTaskDAO.addDownloadTask(task);
+        }
         //构造下载任务
         DownloadTaskRunnable downloadTaskRunnable = new DownloadTaskRunnable();
         downloadTaskRunnable.setTask(task);
