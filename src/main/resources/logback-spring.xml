@@ -67,9 +67,9 @@
 	<root>
 		<level value="INFO" />
 		<!--本地开发环境输出到console -->
-		<springProfile name="development">
+		<!--<springProfile name="development">-->
 			<appender-ref ref="stdout" />
-		</springProfile>
+		<!--</springProfile>-->
 		<appender-ref ref="all" />
 	</root>
 </configuration>

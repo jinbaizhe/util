@@ -52,7 +52,7 @@ public class UtilController {
     @RequestMapping("/download")
     @ResponseBody
     public String download(@RequestHeader HashMap map, @RequestParam("url") String url,
-                           @RequestParam(value = "fileName",required = false) String fileName, Boolean isRecord){
+                           @RequestParam(value = "fileName",required = false) String fileName){
         logHeader(map);
         AddDownloadTaskResponse response = new AddDownloadTaskResponse();
         if (StringUtils.isBlank(url)){
@@ -62,9 +62,9 @@ public class UtilController {
         } else {
             DownloadTask task = null;
             if (StringUtils.isBlank(fileName)) {
-                task = downloadService.addDownloadTask(url, isRecord);
+                task = downloadService.addDownloadTask(url);
             } else {
-                task = downloadService.addDownloadTask(url, fileName, isRecord);
+                task = downloadService.addDownloadTask(url, fileName);
             }
             response.setMessage("提交下载任务成功");
             response.setUrl(task.getUrl());
@@ -90,7 +90,7 @@ public class UtilController {
             return JSON.toJSONString(response);
         }
         String fileName = video.getDesc().replace("/","") + ".mp4";
-        return download(map, video.getUrl(), fileName, true);
+        return download(map, video.getUrl(), fileName);
     }
 
     @RequestMapping("/getDownloadTask")
@@ -152,7 +152,7 @@ public class UtilController {
         logHeader(map);
         if (taskId != null){
             DownloadTask task = downloadService.getDownloadTask(taskId);
-            download(map, task.getUrl(), task.getFileName(), false);
+            download(map, task.getUrl(), task.getFileName());
             return "提交成功";
         } else if (startIndex != null && endIndex != null && startIndex <= endIndex) {
             for (int i = startIndex; i<= endIndex; i++) {
@@ -161,7 +161,7 @@ public class UtilController {
                     logger.error("查找不到对应的任务记录：taskId={}", i);
                     continue;
                 }
-                download(map, task.getUrl(), task.getFileName(), false);
+                downloadService.addDownloadTask(task);
             }
             return "提交成功";
         }

@@ -163,13 +163,13 @@ public class DownloadServiceImpl implements DownloadService{
     }
 
     @Override
-    public DownloadTask addDownloadTask(String url, boolean isRecord) {
+    public DownloadTask addDownloadTask(String url) {
         String fileName = downloadUtil.getFileName(url);
-        return addDownloadTask(url, fileName, isRecord);
+        return addDownloadTask(url, fileName);
     }
 
     @Override
-    public DownloadTask addDownloadTask(String url, String fileName, boolean isRecord) {
+    public DownloadTask addDownloadTask(String url, String fileName) {
         url = url.trim();
         long length = downloadUtil.getFileLength(url);
         //添加下载任务信息
@@ -178,9 +178,7 @@ public class DownloadServiceImpl implements DownloadService{
         task.setFileName(fileName);
         task.setFileSize(length);
         task.setStatus(EnumDownloadTaskStatus.NOT_STARTED.getCode());
-        if (isRecord) {
-            downloadTaskDAO.addDownloadTask(task);
-        }
+        downloadTaskDAO.addDownloadTask(task);
         //构造下载任务
         DownloadTaskRunnable downloadTaskRunnable = new DownloadTaskRunnable();
         downloadTaskRunnable.setTask(task);
@@ -191,6 +189,21 @@ public class DownloadServiceImpl implements DownloadService{
         executorService.execute(downloadTaskRunnable);
         return task;
     }
+
+    @Override
+    public DownloadTask addDownloadTask(DownloadTask downloadTask) {
+        long length = downloadUtil.getFileLength(downloadTask.getUrl());
+        //构造下载任务
+        DownloadTaskRunnable downloadTaskRunnable = new DownloadTaskRunnable();
+        downloadTaskRunnable.setTask(downloadTask);
+        downloadTaskRunnable.setSaveLocation(saveLocation);
+        downloadTaskRunnable.setTempFileLocation(tempLocation);
+        downloadTaskRunnable.setFileName(downloadTask.getFileName());
+        downloadTaskRunnable.setThreadsNum(downloadThreadNum);
+        executorService.execute(downloadTaskRunnable);
+        return downloadTask;
+    }
+
 
     @Override
     public DownloadTask getDownloadTask(String taskId){
