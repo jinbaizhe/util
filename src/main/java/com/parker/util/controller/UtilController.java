@@ -147,14 +147,25 @@ public class UtilController {
     @ResponseBody
     public String downloadByRecord(@RequestHeader HashMap map,
                                    @RequestParam(value = "taskId", required = false) String taskId,
-                                   @RequestParam(value = "startIndex", required = false) String startIndex,
-                                   @RequestParam(value = "endIndex", required = false) String endIndex){
+                                   @RequestParam(value = "startIndex", required = false) Integer startIndex,
+                                   @RequestParam(value = "endIndex", required = false) Integer endIndex){
         logHeader(map);
         if (taskId != null){
             DownloadTask task = downloadService.getDownloadTask(taskId);
             download(map, task.getUrl(), task.getFileName(), false);
+            return "提交成功";
+        } else if (startIndex != null && endIndex != null && startIndex <= endIndex) {
+            for (int i = startIndex; i<= endIndex; i++) {
+                DownloadTask task = downloadService.getDownloadTask(i + "");
+                if (task == null){
+                    logger.error("查找不到对应的任务记录：taskId={}", i);
+                    continue;
+                }
+                download(map, task.getUrl(), task.getFileName(), false);
+            }
+            return "提交成功";
         }
-        return "提交成功";
+        return "请求参数错误";
     }
 
     private void logHeader(Map map){

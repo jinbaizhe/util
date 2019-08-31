@@ -4,7 +4,7 @@ import lombok.Data;
 
 @Data
 public class DownloadTask {
-    private String id;
+    private Integer id;
     private String url;
     private String fileName;
     private long fileSize;

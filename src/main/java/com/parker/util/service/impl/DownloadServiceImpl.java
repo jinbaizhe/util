@@ -36,8 +36,8 @@ public class DownloadServiceImpl implements DownloadService{
     @Value("${download.temp-localtion}")
     private String tempLocation;
 
-    private final Map<String, DownloadTask> taskMap = new ConcurrentHashMap<>();
-    private final Map<String, DownloadTaskProcess> taskProcessMap = new ConcurrentHashMap<>();
+    private final Map<Integer, DownloadTask> taskMap = new ConcurrentHashMap<>();
+    private final Map<Integer, DownloadTaskProcess> taskProcessMap = new ConcurrentHashMap<>();
     private final int downloadThreadNum = 3;
     private final int retryCount = 3;
     private AtomicBoolean diskIsFull = new AtomicBoolean(false);
@@ -208,7 +208,7 @@ public class DownloadServiceImpl implements DownloadService{
     @Override
     public List<DownloadTask> getAllCurrentDownloadTaskList(){
         List<DownloadTask> list = new LinkedList();
-        for (String taskId: taskMap.keySet()){
+        for (Integer taskId: taskMap.keySet()){
             list.add(taskMap.get(taskId));
         }
         return list;
