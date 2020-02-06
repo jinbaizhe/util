@@ -60,12 +60,12 @@ public class UtilController {
         } else if (downloadService.isDiskFull()){
             response.setMessage("服务器磁盘空间已满，任务提交失败");
         } else {
-            DownloadTask task = null;
-            if (StringUtils.isBlank(fileName)) {
-                task = downloadService.addDownloadTask(url);
-            } else {
-                task = downloadService.addDownloadTask(url, fileName);
-            }
+            DownloadTask task = new DownloadTask();
+            task.setUrl(url);
+            task.setFileName(fileName);
+            task.setDescription("");
+            task.setRemark("");
+            downloadService.addDownloadTask(task);
             response.setMessage("提交下载任务成功");
             response.setUrl(task.getUrl());
             response.setFileName(task.getFileName());
@@ -82,15 +82,39 @@ public class UtilController {
         if (StringUtils.isBlank(url)){
             response.setMessage("地址输入有误");
             return JSON.toJSONString(response);
+        } else if (downloadService.isDiskFull()){
+            response.setMessage("服务器磁盘空间已满，任务提交失败");
+            return JSON.toJSONString(response);
         }
-        url = url.trim();
+
+        //获得解析后的地址
         Video video = parseVideoUtil.parseVideoURL(url);
         if (video==null || StringUtils.isBlank(video.getUrl())){
             response.setMessage("解析视频地址时出错");
             return JSON.toJSONString(response);
         }
-        String fileName = video.getDesc().replace("/","") + ".mp4";
-        return download(map, video.getUrl(), fileName);
+
+        //拼接文件名
+        //取描述字段作为文件名，默认后缀为.mp4
+        String suffix = ".mp4";
+        int suffixIndex = video.getUrl().lastIndexOf(".");
+        if (suffixIndex != -1) {
+            suffix = video.getUrl().substring(suffixIndex);
+        }
+        String fileName = video.getDesc().replace("/","") + suffix;
+
+        //提交下载任务
+        DownloadTask downloadTask = new DownloadTask();
+        downloadTask.setUrl(video.getUrl());
+        downloadTask.setFileName(fileName);
+        downloadTask.setDescription(video.getDesc());
+        downloadTask.setRemark(url.trim());
+
+        downloadService.addDownloadTask(downloadTask);
+        response.setUrl(downloadTask.getUrl());
+        response.setFileName(downloadTask.getFileName());
+
+        return JSON.toJSONString(response);
     }
 
     @RequestMapping("/getDownloadTask")

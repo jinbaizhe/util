@@ -12,22 +12,97 @@
         <result column="current_speed" property="currentSpeed" jdbcType="BIGINT"></result>
         <result column="avg_speed" property="avgSpeed" jdbcType="BIGINT"></result>
         <result column="max_speed" property="maxSpeed" jdbcType="BIGINT"></result>
-        <result column="start_time" property="startTime" jdbcType="BIGINT"></result>
-        <result column="end_time" property="endTime" jdbcType="BIGINT"></result>
+        <result column="start_time" property="startTime" jdbcType="DATE"></result>
+        <result column="end_time" property="endTime" jdbcType="DATE"></result>
         <result column="remaining_time" property="remainingTime" jdbcType="BIGINT"></result>
+        <result column="remark" property="remark" jdbcType="VARCHAR"></result>
     </resultMap>
     
     <insert id="addDownloadTask" parameterType="com.parker.util.entity.DownloadTask" useGeneratedKeys="true" keyProperty="id">
-        insert into download_task(url, file_name, file_size, description, status, start_time)
-         values (#{url}, #{fileName}, #{fileSize},
-         #{description}, #{status}, #{startTime})
+        insert into download_task
+        <trim prefix="(" suffixOverrides="," suffix=")">
+            <if test="url != null">
+                url,
+            </if>
+            <if test="fileName != null">
+                file_name,
+            </if>
+            <if test="fileSize != null">
+                file_size,
+            </if>
+            <if test="description != null">
+                description,
+            </if>
+            <if test="status != null">
+                status,
+            </if>
+            <if test="startTime != null">
+                start_time,
+            </if>
+            <if test="remark != null">
+                remark,
+            </if>
+        </trim>
+        values
+        <trim prefix="(" suffixOverrides="," suffix=")">
+            <if test="url != null">
+                #{url},
+            </if>
+            <if test="fileName != null">
+                #{fileName},
+            </if>
+            <if test="fileSize != null">
+                #{fileSize},
+            </if>
+            <if test="description != null">
+                #{description},
+            </if>
+            <if test="status != null">
+                #{status},
+            </if>
+            <if test="startTime != null">
+                #{startTime},
+            </if>
+            <if test="remark != null">
+                #{remark}
+            </if>
+        </trim>
     </insert>
     <update id="updateDownloadTask" parameterType="com.parker.util.entity.DownloadTask">
-        update download_task set file_name=#{fileName}, description=#{description},
-         saved_file_size=#{savedFileSize}, remaining_time=#{remainingTime},
-         current_speed=#{currentSpeed}, avg_speed=#{avgSpeed},
-         max_speed=#{maxSpeed}, end_time=#{endTime},
-         remaining_time=#{remainingTime} where id = #{id}
+        update download_task
+        <trim prefix="set" suffixOverrides=",">
+            <if test="fileName != null">
+                file_name=#{fileName},
+            </if>
+            <if test="description != null">
+                description=#{description},
+            </if>
+            <if test="savedFileSize != null">
+                saved_file_size=#{savedFileSize},
+            </if>
+            <if test="remainingTime != null">
+                remaining_time=#{remainingTime},
+            </if>
+            <if test="currentSpeed != null">
+                current_speed=#{currentSpeed},
+            </if>
+            <if test="avgSpeed != null">
+                avg_speed=#{avgSpeed},
+            </if>
+            <if test="maxSpeed != null">
+                max_speed=#{maxSpeed},
+            </if>
+            <if test="startTime != null">
+                start_time=#{startTime},
+            </if>
+            <if test="endTime != null">
+                end_time=#{endTime},
+            </if>
+            <if test="remark != null">
+                remark=#{remark},
+            </if>
+        </trim>
+        where id = #{id}
     </update>
     <update id="updateDownloadTaskStatus">
         update download_task set status = #{status} where id = #{id}

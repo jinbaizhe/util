@@ -15,6 +15,7 @@ import org.springframework.stereotype.Component;
 
 import java.io.*;
 import java.net.*;
+import java.util.Date;
 import java.util.Map;
 import java.util.Observable;
 import java.util.Observer;
@@ -23,6 +24,20 @@ import java.util.concurrent.CountDownLatch;
 @Component
 public class DownloadUtil {
     private static final Logger logger = LoggerFactory.getLogger(DownloadUtil.class);
+
+    private static final Long SIZE_KB = 1024L;
+
+    private static final Long SIZE_MB = SIZE_KB * 1024;
+
+    private static final Long SIZE_GB = SIZE_MB * 1024;
+
+    private static final String USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/71.0.3578.98 Safari/537.36";
+
+    /**
+     * 取样时间
+     * 每隔一定时间统计下载速度
+     */
+    private static final int INTERVAL = 500;
 
     @Value("${download.redis-db-index}")
     private int dbIndex;
@@ -71,7 +86,7 @@ public class DownloadUtil {
         try {
             URL url = new URL(address);
             connection = url.openConnection();
-            connection.setRequestProperty("user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/71.0.3578.98 Safari/537.36");
+            connection.setRequestProperty("user-agent", USER_AGENT);
             connection.setReadTimeout(2000);
         } catch (Exception e) {
             e.printStackTrace();
@@ -79,6 +94,11 @@ public class DownloadUtil {
         return connection;
     }
 
+    /**
+     * 查询待下载文件的大小，最多重试三次
+     * @param address
+     * @return
+     */
     public long getFileLength(String address){
         int count = 2;
         long length = 0 ;
@@ -90,9 +110,16 @@ public class DownloadUtil {
         return length;
     }
 
+    /**
+     * 合并缓存文件，生成最终文件
+     * @param partsNum
+     * @param saveLocation
+     * @param fileName
+     * @param tempFileLocation
+     */
     public void mergeFile(int partsNum, String saveLocation, String fileName, String tempFileLocation){
         long startTime = System.currentTimeMillis();
-        double fileSize = 0;
+        long fileSize = 0;
         try {
             RandomAccessFile file = new RandomAccessFile(tempFileLocation + fileName + "#0", "rwd");
             byte[] bytes = new byte[8192];
@@ -121,7 +148,7 @@ public class DownloadUtil {
                 }
             }
             if (file != null) {
-                fileSize = file.length()/1.0/1024/1024;
+                fileSize = file.length();
                 file.close();
             }
             File totalTempFile = new File(tempFileLocation + fileName + "#0");
@@ -130,15 +157,16 @@ public class DownloadUtil {
             }else {
                 logger.error("缓存文件丢失，需重新提交下载任务");
             }
-        } catch (FileNotFoundException e) {
-            logger.error(e.getMessage());
-        }catch (IOException e){
-            logger.error(e.getMessage());
+        } catch (IOException e) {
+            logger.error("文件I/O出现错误；[{}]",e);
         }
         long endTime = System.currentTimeMillis();
         double spendTime = (endTime - startTime) / 1.0 / 1000;
-        double speed = fileSize/spendTime;
-        logger.debug("合并文件完成[文件名：" + fileName + "，总大小：" + doubleToStringWithFormat(fileSize) + "MB，耗时：" + doubleToStringWithFormat(spendTime) + "秒,速度：" + doubleToStringWithFormat(speed) + "MB/s]");
+        logger.debug("合并文件完成：文件名=[{}]，总大小=[{}]，耗时=[{}s]，下载速度=[{}/s]"
+                , fileName
+                , doubleToStringWithFormat(fileSize)
+                , doubleToStringWithFormat(spendTime)
+                , getFileSizeString(fileSize / (endTime - startTime)));
     }
 
     public String getNewFileNameIfExists(String saveLocation, String fileName, String tempFileLocation){
@@ -165,6 +193,33 @@ public class DownloadUtil {
     public long getUsedSpace(String filePath){
         File file = new File(filePath);
         return file.getTotalSpace() - file.getUsableSpace();
+    }
+
+    public boolean isHaveEnoughSpace(String filePath, long needSpaceSize) {
+        return getUsableSpace(filePath) > needSpaceSize;
+    }
+
+    private static Double toKB(Long bSize) {
+        return bSize / 1.0 / 1024;
+    }
+
+    private static Double toMB(Long bSize) {
+        return toKB(bSize) / 1024;
+    }
+
+    private static Double toGB(Long bSize) {
+        return toMB(bSize) / 1024;
+    }
+
+    public static String getFileSizeString(Long size) {
+        if (size < SIZE_KB) {
+            return size + "B";
+        } else if (size < SIZE_MB) {
+            return String.format("%.2f", toKB(size)) + "KB";
+        } else if (size < SIZE_GB) {
+            return String.format("%.2f", toMB(size)) + "MB";
+        }
+        return String.format("%.2f", toGB(size)) + "GB";
     }
 
     @Data
@@ -195,7 +250,7 @@ public class DownloadUtil {
             int count = 0;
             while (true) {
                 if (count >= 3){
-                    logger.error("下载失败[文件名:"+ tempFileName + "]");
+                    logger.error("下载失败：文件名=[{}]", tempFileName);
                     task.setStatus(EnumDownloadTaskStatus.FAILED.getCode());
                     countDownLatch.countDown();
                     break;
@@ -216,7 +271,7 @@ public class DownloadUtil {
                     countDownLatch.countDown();
                     break;
                 } catch (IOException e) {
-                    logger.error(e.toString());
+                    logger.error("下载失败：文件名=[{}]，exception=[{}]", tempFileName, e);
                     try {
                         Thread.sleep(10000);
                     } catch (InterruptedException e1) {
@@ -262,64 +317,77 @@ public class DownloadUtil {
 
         @Override
         public void run() {
+            long startTime = System.currentTimeMillis();
             //设置任务状态为开始下载状态
             task.setStatus(EnumDownloadTaskStatus.DOWNLOADING.getCode());
-            long startTime = System.currentTimeMillis();
-            task.setStartTime(startTime);
+            task.setStartTime(new Date(startTime));
+
             long lastTempFileLength = tempFileSize;
-            double currentSpeedKB = 0;
-            double maxSpeedKB = 0;
+            double currentSpeed = 0;
+            double maxSpeed = 0;
             double remainTime = 0;
-            //取样时间(ms)
-            int timeDelta = 500;
             long fileSizeDelta = 0;
+            //每隔一段时间统计下载速度和下载进度
             while ((countDownLatch.getCount() > 1) && tempFileSize<fileSize){
                 fileSizeDelta = tempFileSize - lastTempFileLength;
                 if (fileSizeDelta ==0 ){
                     continue;
                 }
-                currentSpeedKB = fileSizeDelta /1.0 / 1024 / (timeDelta / 1.0 / 1000);
+
+                //计算当前下载速度
+                currentSpeed = fileSizeDelta / 1.0 / (INTERVAL / 1.0 / 1000);
                 lastTempFileLength = tempFileSize;
-                maxSpeedKB = (maxSpeedKB < currentSpeedKB)? currentSpeedKB : maxSpeedKB;
+
+                //计算最大下载速度
+                maxSpeed = (maxSpeed < currentSpeed)? currentSpeed : maxSpeed;
+
                 //计算剩余时间
-                remainTime = (fileSize - tempFileSize) / 1.0 / 1024 / currentSpeedKB;
-                //保存相关的下载信息
+                remainTime = (fileSize - tempFileSize) / 1.0 / 1024 / currentSpeed;
+
+                //记录相关的下载信息
                 task.setSavedFileSize(tempFileSize);
-                task.setMaxSpeed(Math.round(maxSpeedKB));
-                task.setCurrentSpeed(Math.round(currentSpeedKB));
+                task.setMaxSpeed(Math.round(maxSpeed));
+                task.setCurrentSpeed(Math.round(currentSpeed));
                 task.setRemainingTime(Math.round(remainTime));
+                //保存数据到缓存中
                 String key = CommonConstant.DOWNLOAD_TASK + CommonConstant.REDIS_KEY_SEPARATOR + task.getId();
                 redisManager.set(dbIndex, key, JSON.toJSONString(task));
+                //间隔一定时间
                 try {
-                    Thread.sleep(timeDelta);
+                    Thread.sleep(INTERVAL);
                 } catch (InterruptedException e) {
                     countDownLatch.countDown();
-                    logger.error("下载状态线程被中断[任务id:" + task.getId() + "]");
+                    logger.error("下载状态线程被中断：task=[{}]", JSON.toJSONString(task));
                 }
             }
-            //当记录的已下载大小大于文件本身大小时
+
+            //此时已经下载完成
+            //当记录的已下载大小大于文件本身大小时,修正数据
             task.setSavedFileSize(tempFileSize > task.getFileSize() ? tempFileSize : task.getFileSize());
+            //统计有关下载任务的数据
             if (task.getStatus().equals(EnumDownloadTaskStatus.DOWNLOADING.getCode())) {
+                //统计任务完成时间
                 long endTime = System.currentTimeMillis();
-                double spendTime = endTime - startTime;
-                double fileSizeKB = fileSize / 1.0 / 1024;
-                double fileSizeMB = fileSizeKB / 1024;
-                double avgSpeedKB = Math.round(fileSizeKB / (spendTime / 1000));
-                double avgSpeedMB = avgSpeedKB / 1024;
-                logger.debug("下载文件完成[文件名：" + task.getFileName() + "，总大小：" + doubleToStringWithFormat(fileSizeMB) + "MB，耗时：" + doubleToStringWithFormat(spendTime / 1000) + "秒，平均下载速度：" + doubleToStringWithFormat(avgSpeedMB) + "MB/s]");
-                task.setStartTime(startTime / 1000);
-                task.setEndTime(endTime / 1000);
-                task.setMaxSpeed(maxSpeedKB > avgSpeedKB ? maxSpeedKB : avgSpeedKB);
+                long spendTime = endTime - startTime;
+
+                double avgSpeedKB = Math.round(fileSize / (spendTime / 1000));
+                logger.info("分块文件下载完成：文件名=[{}]，总大小=[{}]，耗时=[{}s]，平均下载速度=[{}/s]", task.getFileName()
+                        , getFileSizeString(fileSize)
+                        , doubleToStringWithFormat(spendTime / 1000)
+                        , getFileSizeString(fileSize / spendTime / 1000));
+                task.setEndTime(new Date(endTime));
+                task.setMaxSpeed(maxSpeed > avgSpeedKB ? maxSpeed : avgSpeedKB);
                 task.setAvgSpeed(avgSpeedKB);
                 task.setCurrentSpeed(0);
                 task.setRemainingTime(0);
                 task.setSavedFileSize(tempFileSize);
             }
+
             //移除Redis中的记录
             String key = CommonConstant.DOWNLOAD_TASK + CommonConstant.REDIS_KEY_SEPARATOR + task.getId();
             redisManager.delMatchKey(0, key);
             countDownLatch.countDown();
-            logger.info("文件下载成功：文件名：{}， 平均下载速度：{}", task.getFileName(), task.getAvgSpeed());
+            logger.info("分块文件下载成功：文件名=[{}]，平均下载速度=[{}]", task.getFileName(), task.getAvgSpeed());
         }
 
         @Override
